@@ -1,8 +1,36 @@
-import { UmbraWallet } from '@/client/umbra-wallet';
-import { ITransactionForwarder } from './interface';
+import { UmbraWallet, UmbraWalletError } from '@/client/umbra-wallet';
+import { ITransactionForwarder, ISigner } from './interface';
 import { SolanaTransactionSignature } from '@/types';
 import { ConnectionBasedForwarder } from '@/client/implementation/connection-based-forwarder';
 import { Connection } from '@solana/web3.js';
+
+/**
+ * Error thrown when adding an Umbra wallet to the client fails.
+ *
+ * @remarks
+ * This error is thrown when adding a wallet fails due to wallet creation errors,
+ * invalid signer, or other wallet-related issues.
+ *
+ * @public
+ */
+export class UmbraWalletAdditionError extends Error {
+        /**
+         * Creates a new instance of UmbraWalletAdditionError.
+         *
+         * @param message - Human-readable error message describing what went wrong
+         * @param cause - Optional underlying error that caused this error
+         */
+        public constructor(message: string, cause?: Error) {
+                super(message);
+                this.name = this.constructor.name;
+                this.cause = cause;
+
+                // Maintains proper stack trace for where our error was thrown (only available on V8)
+                if (Error.captureStackTrace) {
+                        Error.captureStackTrace(this, this.constructor);
+                }
+        }
+}
 
 /**
  * High-level client for interacting with the Umbra Privacy protocol smart contracts.
@@ -224,5 +252,121 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 }
 
                 return new UmbraClient([], [], connectionBasedForwarder);
+        }
+
+        /**
+         * Adds an Umbra wallet to the client from an existing UmbraWallet instance.
+         *
+         * @param umbraWallet - An existing UmbraWallet instance to add to the client
+         * @returns A promise that resolves when the wallet is successfully added
+         *
+         * @throws {@link UmbraWalletAdditionError} When the wallet is null, undefined, or invalid
+         *
+         * @remarks
+         * Use this overload when you already have a created UmbraWallet instance and want to
+         * add it to the client. This is useful when you've created the wallet separately
+         * and want to manage it through the client.
+         *
+         * **Wallet Management:**
+         * Once added, the wallet is stored in the client's `umbraWallets` array and can be
+         * accessed for cryptographic operations, transaction signing, and encryption.
+         *
+         * @example
+         * ```typescript
+         * // Create wallet separately
+         * const wallet = await UmbraWallet.fromSigner(signer);
+         *
+         * // Add to client
+         * await client.addUmbraWallet(wallet);
+         * ```
+         */
+        public async addUmbraWallet(umbraWallet: UmbraWallet): Promise<void>;
+
+        /**
+         * Adds an Umbra wallet to the client by creating it from an ISigner.
+         *
+         * @param signer - An ISigner instance to create the UmbraWallet from
+         * @returns A promise that resolves when the wallet is successfully created and added
+         *
+         * @throws {@link UmbraWalletAdditionError} When wallet creation fails due to signer errors, key derivation failures, or initialization issues
+         *
+         * @remarks
+         * Use this overload when you have a signer and want the client to automatically create
+         * the UmbraWallet for you. This is the most convenient approach as it handles all
+         * wallet initialization internally.
+         *
+         * **Wallet Creation Process:**
+         * The wallet is created using `UmbraWallet.fromSigner`, which:
+         * - Signs a default message to obtain a master signature seed
+         * - Derives X25519 key pair for Rescue cipher operations
+         * - Generates master viewing key for compliance and transaction linking
+         * - Initializes Rescue ciphers for encryption/decryption
+         *
+         * **Signer Requirements:**
+         * The signer must be fully initialized and capable of signing messages. If the signer
+         * is unavailable or fails to sign, a `UmbraWalletAdditionError` will be thrown.
+         *
+         * @example
+         * ```typescript
+         * // Create wallet from signer directly
+         * await client.addUmbraWallet(signer);
+         *
+         * // Access the created wallet
+         * const wallet = client.umbraWallets[0];
+         * ```
+         */
+        public async addUmbraWallet(signer: ISigner): Promise<void>;
+
+        /**
+         * Implementation of addUmbraWallet that handles all overloads.
+         *
+         * @internal
+         */
+        public async addUmbraWallet(umbraWalletOrSigner: UmbraWallet | ISigner): Promise<void> {
+                try {
+                        let wallet: UmbraWallet;
+
+                        if (umbraWalletOrSigner instanceof UmbraWallet) {
+                                // Direct UmbraWallet instance
+                                if (!umbraWalletOrSigner) {
+                                        throw new UmbraWalletAdditionError(
+                                                'UmbraWallet instance cannot be null or undefined'
+                                        );
+                                }
+                                wallet = umbraWalletOrSigner;
+                        } else {
+                                // ISigner instance - create wallet from signer
+                                if (!umbraWalletOrSigner) {
+                                        throw new UmbraWalletAdditionError(
+                                                'ISigner instance cannot be null or undefined'
+                                        );
+                                }
+
+                                try {
+                                        wallet = await UmbraWallet.fromSigner(umbraWalletOrSigner);
+                                } catch (error) {
+                                        if (error instanceof UmbraWalletError) {
+                                                throw new UmbraWalletAdditionError(
+                                                        `Failed to create UmbraWallet from signer: ${error.message}`,
+                                                        error
+                                                );
+                                        }
+                                        throw new UmbraWalletAdditionError(
+                                                `Failed to create UmbraWallet from signer: ${error instanceof Error ? error.message : String(error)}`,
+                                                error instanceof Error ? error : undefined
+                                        );
+                                }
+                        }
+
+                        this.umbraWallets.push(wallet);
+                } catch (error) {
+                        if (error instanceof UmbraWalletAdditionError) {
+                                throw error;
+                        }
+                        throw new UmbraWalletAdditionError(
+                                `Failed to add Umbra wallet: ${error instanceof Error ? error.message : String(error)}`,
+                                error instanceof Error ? error : undefined
+                        );
+                }
         }
 }
