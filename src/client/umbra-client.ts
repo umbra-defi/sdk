@@ -18,6 +18,17 @@ import { Connection } from '@solana/web3.js';
  * - Transaction forwarding and confirmation
  * - Network connectivity and RPC management
  *
+ * **Connection Requirement:**
+ * **It is absolutely necessary to provide a connection** (via RPC URL, Connection instance, or
+ * ConnectionBasedForwarder) when creating the client. All on-chain data operations depend on this connection:
+ * - Fetching account data from the blockchain
+ * - Reading program state and account information
+ * - Sending transactions to the network
+ * - Confirming transaction status
+ * - Querying transaction history
+ *
+ * Without a valid connection, the client cannot interact with the Umbra Privacy protocol on-chain.
+ *
  * **Key Features:**
  * - **Simplified API**: Interact with Umbra Privacy smart contracts using high-level methods
  * - **Automatic Management**: Handles wallet creation, key derivation, and cipher management automatically
@@ -101,13 +112,17 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         /**
          * Creates an UmbraClient from a ConnectionBasedForwarder instance.
          *
-         * @param connectionBasedForwarder - An existing ConnectionBasedForwarder instance
+         * @param connectionBasedForwarder - An existing ConnectionBasedForwarder instance that contains a Solana Connection
          * @returns A new UmbraClient instance
          *
          * @remarks
          * Use this overload when you already have a configured ConnectionBasedForwarder instance
          * and want to reuse it. This is useful when you need fine-grained control over the
          * connection configuration or want to share a forwarder across multiple clients.
+         *
+         * **Connection Requirement:**
+         * The ConnectionBasedForwarder must contain a valid Solana Connection, as all on-chain
+         * data fetching and transaction sending operations will use this connection.
          *
          * @example
          * ```typescript
@@ -120,13 +135,20 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         /**
          * Creates an UmbraClient from a Solana Connection instance.
          *
-         * @param connection - The Solana Connection instance to use for transaction forwarding
+         * @param connection - The Solana Connection instance to use for all on-chain operations
          * @returns A new UmbraClient instance
          *
          * @remarks
          * Use this overload when you already have a Connection instance configured with your
          * desired RPC endpoint, commitment level, or other connection settings. The client
          * will create a ConnectionBasedForwarder internally using this connection.
+         *
+         * **Connection Requirement:**
+         * This connection is absolutely necessary and will be used for:
+         * - Fetching on-chain account data and program state
+         * - Sending transactions to the network
+         * - Confirming transaction status
+         * - All other blockchain interactions
          *
          * @example
          * ```typescript
@@ -148,6 +170,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * This is the simplest way to create an UmbraClient. Just provide an RPC endpoint URL
          * and the client will handle all connection setup internally. This is recommended for
          * most use cases where you don't need custom connection configuration.
+         *
+         * **Connection Requirement:**
+         * The RPC URL is absolutely necessary and will be used to create a Solana Connection
+         * that handles all on-chain operations:
+         * - Fetching account data and program state from the blockchain
+         * - Sending transactions to the network
+         * - Confirming transaction status
+         * - Querying transaction history and account information
          *
          * The client will automatically:
          * - Create a Connection instance with the provided RPC URL
