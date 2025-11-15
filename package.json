@@ -1,51 +1,55 @@
 {
-  "name": "umbra-sdk-version",
-  "version": "1.0.0",
-  "description": "",
-  "main": "./dist/cjs/index.js",
-  "module": "./dist/esm/index.js",
-  "types": "./dist/esm/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/esm/index.d.ts",
-      "import": "./dist/esm/index.js",
-      "require": "./dist/cjs/index.js"
-    },
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "dist",
-    "src"
-  ],
-  "scripts": {
-    "build": "pnpm build:clean && pnpm build:esm && pnpm build:cjs",
-    "build:clean": "rm -rf dist",
-    "build:esm": "tsc -p tsconfig.esm.json",
-    "build:cjs": "tsc -p tsconfig.cjs.json",
-    "build:watch": "pnpm build:esm:watch & pnpm build:cjs:watch",
-    "build:esm:watch": "tsc -p tsconfig.esm.json --watch",
-    "build:cjs:watch": "tsc -p tsconfig.cjs.json --watch",
-    "type-check": "tsc --noEmit",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,yml,yaml}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,scss,md,yml,yaml}\"",
-    "lint:format": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,scss,md,yml,yaml}\"",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.20.0",
-  "devDependencies": {
-    "@types/bn.js": "^5.2.0",
-    "@types/node": "^20.11.0",
-    "prettier": "^3.2.5",
-    "typescript": "^5.3.3"
-  },
-  "dependencies": {
-    "@arcium-hq/client": "^0.4.0",
-    "@coral-xyz/anchor": "^0.32.1",
-    "@solana/web3.js": "^1.98.4",
-    "bn.js": "^5.2.2",
-    "web3.js": "link:@types/@solana/web3.js"
-  }
+        "name": "umbra-sdk-version",
+        "version": "1.0.0",
+        "description": "",
+        "main": "./dist/cjs/index.js",
+        "module": "./dist/esm/index.js",
+        "types": "./dist/esm/index.d.ts",
+        "exports": {
+                ".": {
+                        "types": "./dist/esm/index.d.ts",
+                        "import": "./dist/esm/index.js",
+                        "require": "./dist/cjs/index.js"
+                },
+                "./package.json": "./package.json"
+        },
+        "files": [
+                "dist",
+                "src"
+        ],
+        "scripts": {
+                "build": "pnpm build:clean && pnpm build:esm && pnpm build:cjs",
+                "build:clean": "rm -rf dist",
+                "build:esm": "tsc -p tsconfig.esm.json",
+                "build:cjs": "tsc -p tsconfig.cjs.json",
+                "build:watch": "pnpm build:esm:watch & pnpm build:cjs:watch",
+                "build:esm:watch": "tsc -p tsconfig.esm.json --watch",
+                "build:cjs:watch": "tsc -p tsconfig.cjs.json --watch",
+                "type-check": "tsc --noEmit",
+                "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,yml,yaml}\"",
+                "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,scss,md,yml,yaml}\"",
+                "lint:format": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,scss,md,yml,yaml}\"",
+                "test": "echo \"Error: no test specified\" && exit 1"
+        },
+        "keywords": [],
+        "author": "",
+        "license": "ISC",
+        "packageManager": "pnpm@10.20.0",
+        "devDependencies": {
+                "@types/bn.js": "^5.2.0",
+                "@types/node": "^20.11.0",
+                "client": "link:@types/arcium-hq/client",
+                "hashes": "link:@types/@noble/hashes",
+                "prettier": "^3.2.5",
+                "typescript": "^5.3.3"
+        },
+        "dependencies": {
+                "@arcium-hq/client": "^0.4.0",
+                "@coral-xyz/anchor": "^0.32.1",
+                "@noble/curves": "^2.0.1",
+                "@noble/hashes": "^2.0.1",
+                "@solana/web3.js": "^1.98.4",
+                "bn.js": "^5.2.2",
+                "web3.js": "link:@types/@solana/web3.js"
+        }
 }

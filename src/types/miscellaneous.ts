@@ -18,6 +18,8 @@ export type RiskThreshold = Bytes & { _brand: 'RiskThreshold'; length: 16 };
 export type NumberOfTransactions = U32;
 export type InstructionSeed = U16;
 
+export type Plaintext = bigint;
+
 export type FlagBitsTransactionInput = { 0: BN };
 export type AmountTransactionInput = { 0: BN };
 export type BasisPointsTransactionInput = { 0: BN };

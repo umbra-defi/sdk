@@ -1,14 +1,16 @@
-import { Bytes } from '@/types/common';
+import { Bytes, U128 } from '@/types/common';
+import BN from 'bn.js';
 
 export type ArciumX25519PublicKey = Bytes & { _brand: 'ArciumX25519PublicKey'; length: 32 };
 export type ArciumX25519SecretKey = Bytes & { _brand: 'ArciumX25519SecretKey'; length: 32 };
 export type RescueCiphertext = Bytes & { _brand: 'RescueCiphertext'; length: 32 };
-export type ArciumX25519Nonce = Bytes & { _brand: 'ArciumX25519Nonce'; length: 32 };
+export type ArciumX25519Nonce = U128;
+export type RescueCipherSharedSecret = Bytes & { _brand: 'RescueCipherSharedSecret'; length: 32 };
 
 export type ArciumX25519PublicKeyTransactionInput = { 0: Array<number> };
 export type ArciumX25519SecretKeyTransactionInput = { 0: Array<number> };
 export type RescueCiphertextTransactionInput = { 0: Array<number> };
-export type ArciumX25519NonceTransactionInput = { 0: Array<number> };
+export type ArciumX25519NonceTransactionInput = { 0: BN };
 
 export function convertArciumX25519PublicKeyToTransactionInput(
         publicKey: ArciumX25519PublicKey
@@ -31,5 +33,5 @@ export function convertRescueCiphertextToTransactionInput(
 export function convertArciumX25519NonceToTransactionInput(
         nonce: ArciumX25519Nonce
 ): ArciumX25519NonceTransactionInput {
-        return { 0: Array.from(nonce) };
+        return { 0: new BN(nonce) };
 }

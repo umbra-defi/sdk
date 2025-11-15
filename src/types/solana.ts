@@ -12,6 +12,7 @@ export type ProgramDerivedAddressTransactionInput = { 0: PublicKey };
 export type ProgramAddressTransactionInput = { 0: PublicKey };
 
 export type SolanaSignature = Bytes & { _brand: 'SolanaSignature'; length: 64 };
+export type SolanaTransactionSignature = string;
 
 export function convertSolanaAddressToTransactionInput(
         solanaAddress: SolanaAddress
