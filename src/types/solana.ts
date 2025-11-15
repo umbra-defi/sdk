@@ -1,4 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
+import { Bytes } from '@/types/common';
 
 export type SolanaAddress = PublicKey & { _brand: 'SolanaAddress' };
 export type MintAddress = PublicKey & { _brand: 'MintAddress' };
@@ -9,6 +10,8 @@ export type SolanaAddressTransactionInput = { 0: PublicKey };
 export type MintAddressTransactionInput = { 0: PublicKey };
 export type ProgramDerivedAddressTransactionInput = { 0: PublicKey };
 export type ProgramAddressTransactionInput = { 0: PublicKey };
+
+export type SolanaSignature = Bytes & { _brand: 'SolanaSignature'; length: 64 };
 
 export function convertSolanaAddressToTransactionInput(
         solanaAddress: SolanaAddress
