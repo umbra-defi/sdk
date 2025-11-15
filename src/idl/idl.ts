@@ -3208,6 +3208,14 @@ export type Umbra = {
               "name": "arciumX25519Nonce"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -10987,6 +10995,14 @@ export type Umbra = {
           "type": {
             "defined": {
               "name": "arciumX25519Nonce"
+            }
+          }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
             }
           }
         }
@@ -31213,7 +31229,7 @@ export type Umbra = {
       }
     },
     {
-      "name": "keccak256Hash",
+      "name": "sha3Hash",
       "type": {
         "kind": "struct",
         "fields": [

@@ -1954,6 +1954,14 @@
                                                         "name": "ArciumX25519Nonce"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -6331,6 +6339,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "ArciumX25519Nonce"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }
@@ -20650,7 +20666,7 @@
                         }
                 },
                 {
-                        "name": "Keccak256Hash",
+                        "name": "Sha3Hash",
                         "type": {
                                 "kind": "struct",
                                 "fields": [
