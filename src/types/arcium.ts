@@ -1,0 +1,35 @@
+import { Bytes } from '@/types/common';
+
+export type ArciumX25519PublicKey = Bytes & { _brand: 'ArciumX25519PublicKey'; length: 32 };
+export type ArciumX25519SecretKey = Bytes & { _brand: 'ArciumX25519SecretKey'; length: 32 };
+export type RescueCiphertext = Bytes & { _brand: 'RescueCiphertext'; length: 32 };
+export type ArciumX25519Nonce = Bytes & { _brand: 'ArciumX25519Nonce'; length: 32 };
+
+export type ArciumX25519PublicKeyTransactionInput = { 0: Array<number> };
+export type ArciumX25519SecretKeyTransactionInput = { 0: Array<number> };
+export type RescueCiphertextTransactionInput = { 0: Array<number> };
+export type ArciumX25519NonceTransactionInput = { 0: Array<number> };
+
+export function convertArciumX25519PublicKeyToTransactionInput(
+        publicKey: ArciumX25519PublicKey
+): ArciumX25519PublicKeyTransactionInput {
+        return { 0: Array.from(publicKey) };
+}
+
+export function convertArciumX25519SecretKeyToTransactionInput(
+        secretKey: ArciumX25519SecretKey
+): ArciumX25519SecretKeyTransactionInput {
+        return { 0: Array.from(secretKey) };
+}
+
+export function convertRescueCiphertextToTransactionInput(
+        ciphertext: RescueCiphertext
+): RescueCiphertextTransactionInput {
+        return { 0: Array.from(ciphertext) };
+}
+
+export function convertArciumX25519NonceToTransactionInput(
+        nonce: ArciumX25519Nonce
+): ArciumX25519NonceTransactionInput {
+        return { 0: Array.from(nonce) };
+}
