@@ -3398,6 +3398,14 @@ export type Umbra = {
               "name": "accountOffset"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -10683,7 +10691,16 @@ export type Umbra = {
           "name": "mint"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "freezeRelayerAccount",
@@ -13037,6 +13054,14 @@ export type Umbra = {
               "name": "basisPoints"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -13223,7 +13248,16 @@ export type Umbra = {
           "name": "mint"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "initialiseNullifierHash",
@@ -13434,6 +13468,14 @@ export type Umbra = {
           "type": {
             "defined": {
               "name": "riskThreshold"
+            }
+          }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
             }
           }
         }
@@ -13903,6 +13945,14 @@ export type Umbra = {
               "name": "solanaPublicAddress"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -14029,7 +14079,16 @@ export type Umbra = {
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "modifyFeesConfiguration",
@@ -14210,6 +14269,14 @@ export type Umbra = {
               "name": "basisPoints"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -14354,6 +14421,22 @@ export type Umbra = {
               "name": "numberOfTransactions"
             }
           }
+        },
+        {
+          "name": "riskThreshold",
+          "type": {
+            "defined": {
+              "name": "riskThreshold"
+            }
+          }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -14423,6 +14506,14 @@ export type Umbra = {
           "type": {
             "defined": {
               "name": "solanaPublicAddress"
+            }
+          }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
             }
           }
         }

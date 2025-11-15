@@ -1,17 +1,20 @@
 import {
         AccountOffset,
         ArciumX25519Nonce,
+        InstructionSeed,
         LeBytes,
         MintAddress,
         PoseidonHash,
         ProgramDerivedAddress,
         SolanaAddress,
+        U32,
 } from '@/types';
 import { PublicKey } from '@solana/web3.js';
 import {
         convertLeBytesToBuffer,
         convertU128ToLeBytes,
         convertU16ToLeBytes,
+        convertU32ToLeBytes,
 } from '@/utils/convertors';
 import { program } from '@/idl';
 import {
@@ -78,6 +81,20 @@ export function getFeesConfigurationPda(
                         mint.toBuffer(),
                         convertLeBytesToBuffer(
                                 convertU16ToLeBytes(accountOffset) as unknown as LeBytes
+                        ),
+                ],
+                program.programId
+        )[0] as ProgramDerivedAddress;
+}
+
+export function getWalletSpecifierPda(instructionSeed: InstructionSeed): ProgramDerivedAddress {
+        return PublicKey.findProgramAddressSync(
+                [
+                        Buffer.from('wallet_specifier:'),
+                        convertLeBytesToBuffer(
+                                convertU32ToLeBytes(
+                                        instructionSeed as unknown as U32
+                                ) as unknown as LeBytes
                         ),
                 ],
                 program.programId

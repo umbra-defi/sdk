@@ -2078,6 +2078,14 @@
                                                         "name": "AccountOffset"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -6180,7 +6188,16 @@
                                         "name": "mint"
                                 }
                         ],
-                        "args": []
+                        "args": [
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
+                                }
+                        ]
                 },
                 {
                         "name": "freeze_relayer_account",
@@ -7704,6 +7721,14 @@
                                                         "name": "BasisPoints"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -7808,7 +7833,16 @@
                                         "name": "mint"
                                 }
                         ],
-                        "args": []
+                        "args": [
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
+                                }
+                        ]
                 },
                 {
                         "name": "initialise_nullifier_hash",
@@ -7932,6 +7966,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "RiskThreshold"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }
@@ -8229,6 +8271,14 @@
                                                         "name": "SolanaPublicAddress"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -8293,7 +8343,16 @@
                                         "address": "11111111111111111111111111111111"
                                 }
                         ],
-                        "args": []
+                        "args": [
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
+                                }
+                        ]
                 },
                 {
                         "name": "modify_fees_configuration",
@@ -8408,6 +8467,14 @@
                                                         "name": "BasisPoints"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -8485,6 +8552,22 @@
                                                         "name": "NumberOfTransactions"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "risk_threshold",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "RiskThreshold"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -8531,6 +8614,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "SolanaPublicAddress"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }
