@@ -39,6 +39,7 @@
                 "@types/bn.js": "^5.2.0",
                 "@types/node": "^20.11.0",
                 "client": "link:@types/arcium-hq/client",
+                "curves": "link:@types/noble/curves",
                 "hashes": "link:@types/@noble/hashes",
                 "prettier": "^3.2.5",
                 "typescript": "^5.3.3"

@@ -51,6 +51,13 @@ export function convertBeBytesToBigInt(bytes: BeBytes, numberOfBytes: number): b
         return bigint;
 }
 
+export function convertLeBytesToBuffer(bytes: LeBytes): Buffer {
+        return Buffer.from(bytes);
+}
+export function convertBeBytesToBuffer(bytes: BeBytes): Buffer {
+        return Buffer.from(bytes);
+}
+
 export function convertU8ToLeBytes(u8: U8): U8LeBytes {
         return convertBigIntToLeBytes(u8, 1) as unknown as U8LeBytes;
 }

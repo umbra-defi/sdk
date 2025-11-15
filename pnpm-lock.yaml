@@ -39,6 +39,9 @@ importers:
       client:
         specifier: link:@types/arcium-hq/client
         version: link:@types/arcium-hq/client
+      curves:
+        specifier: link:@types/noble/curves
+        version: link:@types/noble/curves
       hashes:
         specifier: link:@types/@noble/hashes
         version: link:@types/@noble/hashes
