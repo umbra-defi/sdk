@@ -1,7 +1,4 @@
-import { ITransactionForwarder } from '@/client/interface';
-import { SolanaTransactionSignature } from '@/types';
-
+import { UmbraWallet } from '@/client/umbra-wallet';
 export class UmbraClient {
-        private readonly connectionBasedForwarder: ITransactionForwarder<SolanaTransactionSignature>;
-        private r;
+        public readonly umbraWallets: Array<UmbraWallet>;
 }

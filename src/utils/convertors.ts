@@ -18,7 +18,7 @@ import {
         U128BeBytes,
 } from '@/types/common';
 
-function convertBigIntToLeBytes(bigint: bigint, numberOfBytes: number): LeBytes {
+export function convertBigIntToLeBytes(bigint: bigint, numberOfBytes: number): LeBytes {
         const bytes = new Uint8Array(numberOfBytes);
         for (let i = 0; i < numberOfBytes; i++) {
                 bytes[i] = Number(bigint & 0xffn);
@@ -27,7 +27,7 @@ function convertBigIntToLeBytes(bigint: bigint, numberOfBytes: number): LeBytes 
         return bytes as LeBytes;
 }
 
-function convertBigIntToBeBytes(bigint: bigint, numberOfBytes: number): BeBytes {
+export function convertBigIntToBeBytes(bigint: bigint, numberOfBytes: number): BeBytes {
         const bytes = new Uint8Array(numberOfBytes);
         for (let i = 0; i < numberOfBytes; i++) {
                 bytes[i] = Number((bigint >> (8n * BigInt(numberOfBytes - i - 1))) & 0xffn);
@@ -35,7 +35,7 @@ function convertBigIntToBeBytes(bigint: bigint, numberOfBytes: number): BeBytes 
         return bytes as BeBytes;
 }
 
-function convertLeBytesToBigInt(bytes: LeBytes, numberOfBytes: number): bigint {
+export function convertLeBytesToBigInt(bytes: LeBytes, numberOfBytes: number): bigint {
         let bigint = 0n;
         for (let i = 0; i < numberOfBytes; i++) {
                 bigint = (bigint << 8n) | BigInt(bytes.at(i)!);
@@ -43,7 +43,7 @@ function convertLeBytesToBigInt(bytes: LeBytes, numberOfBytes: number): bigint {
         return bigint;
 }
 
-function convertBeBytesToBigInt(bytes: BeBytes, numberOfBytes: number): bigint {
+export function convertBeBytesToBigInt(bytes: BeBytes, numberOfBytes: number): bigint {
         let bigint = 0n;
         for (let i = 0; i < numberOfBytes; i++) {
                 bigint = (bigint << 8n) | BigInt(bytes.at(i)!);

@@ -1,12 +1,12 @@
 import { BeBytes, LeBytes, U128 } from '@/types/common';
 import BN from 'bn.js';
 
-export type PoseidonHash = LeBytes & { _brand: 'PoseidonHash'; length: 32 };
-export type Sha3Hash = LeBytes & { _brand: 'Sha3Hash'; length: 32 };
+export type PoseidonHash = LeBytes;
+export type Sha3Hash = LeBytes;
 export type ZkMerkleTreeInsertionIndex = U128;
-export type Groth16ProofABeBytes = BeBytes & { _brand: 'Groth16ProofA'; length: 64 };
-export type Groth16ProofBBeBytes = BeBytes & { _brand: 'Groth16ProofB'; length: 128 };
-export type Groth16ProofCBeBytes = BeBytes & { _brand: 'Groth16ProofC'; length: 64 };
+export type Groth16ProofABeBytes = BeBytes;
+export type Groth16ProofBBeBytes = BeBytes;
+export type Groth16ProofCBeBytes = BeBytes;
 
 export type PoseidonHashTransactionInput = { 0: Array<number> };
 export type Sha3HashTransactionInput = { 0: Array<number> };
