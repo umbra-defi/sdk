@@ -12602,7 +12602,7 @@
                                         }
                                 },
                                 {
-                                        "name": "nullifier_hash",
+                                        "name": "expected_nullifier_hash",
                                         "type": {
                                                 "defined": {
                                                         "name": "PoseidonHash"
@@ -12619,14 +12619,6 @@
                                 },
                                 {
                                         "name": "expected_linker_address_hash",
-                                        "type": {
-                                                "defined": {
-                                                        "name": "PoseidonHash"
-                                                }
-                                        }
-                                },
-                                {
-                                        "name": "expected_nullifier_hash",
                                         "type": {
                                                 "defined": {
                                                         "name": "PoseidonHash"
@@ -12710,6 +12702,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "Amount"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }
@@ -13138,7 +13138,7 @@
                                         }
                                 },
                                 {
-                                        "name": "nullifier_hash",
+                                        "name": "expected_nullifier_hash",
                                         "type": {
                                                 "defined": {
                                                         "name": "PoseidonHash"
@@ -13155,14 +13155,6 @@
                                 },
                                 {
                                         "name": "expected_linker_address_hash",
-                                        "type": {
-                                                "defined": {
-                                                        "name": "PoseidonHash"
-                                                }
-                                        }
-                                },
-                                {
-                                        "name": "expected_nullifier_hash",
                                         "type": {
                                                 "defined": {
                                                         "name": "PoseidonHash"
@@ -13246,6 +13238,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "Amount"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }
@@ -13775,6 +13775,14 @@
                                                         "name": "PoseidonHash"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -14283,6 +14291,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "PoseidonHash"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }
