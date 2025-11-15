@@ -3585,6 +3585,14 @@
                                                         "name": "PoseidonHash"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -4046,6 +4054,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "PoseidonHash"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }
@@ -9034,6 +9050,14 @@
                                                         "name": "PoseidonHash"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -9495,6 +9519,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "PoseidonHash"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }

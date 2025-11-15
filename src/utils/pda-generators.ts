@@ -107,6 +107,26 @@ export function getArciumCommissionFeesPoolPda(
         )[0] as ProgramDerivedAddress;
 }
 
+export function getPublicCommissionFeesPoolPda(
+        mint: MintAddress,
+        instructionSeed: AccountOffset,
+        accountOffset: AccountOffset
+): ProgramDerivedAddress {
+        return PublicKey.findProgramAddressSync(
+                [
+                        Buffer.from('public_commission_fees_pool:'),
+                        convertLeBytesToBuffer(
+                                convertU16ToLeBytes(instructionSeed) as unknown as LeBytes
+                        ),
+                        mint.toBuffer(),
+                        convertLeBytesToBuffer(
+                                convertU16ToLeBytes(accountOffset) as unknown as LeBytes
+                        ),
+                ],
+                program.programId
+        )[0] as ProgramDerivedAddress;
+}
+
 export function getWalletSpecifierPda(instructionSeed: InstructionSeed): ProgramDerivedAddress {
         return PublicKey.findProgramAddressSync(
                 [

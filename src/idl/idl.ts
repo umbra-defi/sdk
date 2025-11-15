@@ -5962,6 +5962,14 @@ export type Umbra = {
               "name": "poseidonHash"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -6652,6 +6660,14 @@ export type Umbra = {
           "type": {
             "defined": {
               "name": "poseidonHash"
+            }
+          }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
             }
           }
         }
@@ -15146,6 +15162,14 @@ export type Umbra = {
               "name": "poseidonHash"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -15836,6 +15860,14 @@ export type Umbra = {
           "type": {
             "defined": {
               "name": "poseidonHash"
+            }
+          }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
             }
           }
         }

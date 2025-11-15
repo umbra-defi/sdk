@@ -1,4 +1,4 @@
-import { Bytes, I32, U128, U16, U32, U64, U8 } from '@/types/common';
+import { Bytes, I32, I64, U128, U16, U32, U64, U8 } from '@/types/common';
 import BN from 'bn.js';
 
 export type FlagBits = U8;
@@ -17,6 +17,7 @@ export type Slot = U64;
 export type RiskThreshold = Bytes & { _brand: 'RiskThreshold'; length: 16 };
 export type NumberOfTransactions = U128;
 export type InstructionSeed = U16;
+export type Time = I64;
 
 export type Plaintext = bigint;
 
@@ -36,6 +37,7 @@ export type SlotTransactionInput = { 0: BN };
 export type RiskThresholdTransactionInput = { 0: Array<number> };
 export type NumberOfTransactionsTransactionInput = { 0: BN };
 export type InstructionSeedTransactionInput = { 0: number };
+export type TimeTransactionInput = { 0: BN };
 
 export function convertFlagBitsToTransactionInput(flagBits: FlagBits): FlagBitsTransactionInput {
         return { 0: new BN(flagBits) };
@@ -111,4 +113,8 @@ export function convertInstructionSeedToTransactionInput(
         instructionSeed: InstructionSeed
 ): InstructionSeedTransactionInput {
         return { 0: Number(instructionSeed) };
+}
+
+export function convertTimeToTransactionInput(time: Time): TimeTransactionInput {
+        return { 0: new BN(time) };
 }
