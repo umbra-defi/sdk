@@ -1353,6 +1353,14 @@ export type Umbra = {
               "name": "computationOffset"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -1840,6 +1848,14 @@ export type Umbra = {
           "type": {
             "defined": {
               "name": "accountOffset"
+            }
+          }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
             }
           }
         }
@@ -2388,6 +2404,14 @@ export type Umbra = {
               "name": "accountOffset"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
@@ -2523,6 +2547,14 @@ export type Umbra = {
           "type": {
             "defined": {
               "name": "arciumX25519PublicKey"
+            }
+          }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
             }
           }
         }

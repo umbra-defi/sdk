@@ -323,7 +323,7 @@ export function getArciumAccounts(
         clusterAccount: ProgramDerivedAddress;
         mxeAccount: ProgramDerivedAddress;
         mempoolAccount: ProgramDerivedAddress;
-        executingPoolAccount: ProgramDerivedAddress;
+        executingPool: ProgramDerivedAddress;
 } {
         if (!computationName || computationName.trim().length === 0) {
                 throw new ArciumAccountError('Computation name cannot be empty');
@@ -357,10 +357,10 @@ export function getArciumAccounts(
                 const clusterAccount = ARCIUM_CLUSTER_ACCOUNT;
                 const mxeAccount = ARCIUM_MXE_ACCOUNT;
                 const mempoolAccount = ARCIUM_MEMPOOL_ACCOUNT;
-                const executingPoolAccount = ARCIUM_EXECUTING_POOL_ACCOUNT;
+                const executingPool = ARCIUM_EXECUTING_POOL_ACCOUNT;
 
                 // Validate that all constant accounts are defined
-                if (!clusterAccount || !mxeAccount || !mempoolAccount || !executingPoolAccount) {
+                if (!clusterAccount || !mxeAccount || !mempoolAccount || !executingPool) {
                         throw new ArciumAccountError(
                                 'One or more Arcium constant accounts are undefined'
                         );
@@ -372,7 +372,7 @@ export function getArciumAccounts(
                         clusterAccount: clusterAccount as ProgramDerivedAddress,
                         mxeAccount: mxeAccount as ProgramDerivedAddress,
                         mempoolAccount: mempoolAccount as ProgramDerivedAddress,
-                        executingPoolAccount: executingPoolAccount as ProgramDerivedAddress,
+                        executingPool: executingPool as ProgramDerivedAddress,
                 };
         } catch (error) {
                 if (error instanceof ArciumAccountError) {

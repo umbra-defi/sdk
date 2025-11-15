@@ -820,6 +820,14 @@
                                                         "name": "ComputationOffset"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -1116,6 +1124,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "AccountOffset"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }
@@ -1448,6 +1464,14 @@
                                                         "name": "AccountOffset"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },
@@ -1541,6 +1565,14 @@
                                         "type": {
                                                 "defined": {
                                                         "name": "ArciumX25519PublicKey"
+                                                }
+                                        }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
                                                 }
                                         }
                                 }

@@ -1,4 +1,8 @@
+import { AccountOffset, InstructionSeed, MintAddress } from '@/types';
 import { Transaction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { randomBytes } from '@noble/hashes/utils.js';
+import { convertU16LeBytesToU16 } from './convertors';
+import { U16LeBytes } from '@/types';
 
 /**
  * Error thrown when transaction conversion fails.
@@ -109,6 +113,278 @@ export function convertLegacyTransactionToVersionedTransaction(
         } catch (error) {
                 throw new TransactionConversionError(
                         `Failed to convert transaction to VersionedTransaction: ${error instanceof Error ? error.message : String(error)}`,
+                        error instanceof Error ? error : undefined
+                );
+        }
+}
+
+/**
+ * Error thrown when account offset generation fails.
+ *
+ * @remarks
+ * This error is thrown when generating random account offsets fails due to
+ * random number generation errors, conversion failures, or invalid parameters.
+ *
+ * @public
+ */
+export class AccountOffsetGenerationError extends Error {
+        /**
+         * Creates a new instance of AccountOffsetGenerationError.
+         *
+         * @param message - Human-readable error message describing what went wrong
+         * @param cause - Optional underlying error that caused this error
+         */
+        public constructor(message: string, cause?: Error) {
+                super(message);
+                this.name = this.constructor.name;
+                this.cause = cause;
+
+                // Maintains proper stack trace for where our error was thrown (only available on V8)
+                if (Error.captureStackTrace) {
+                        Error.captureStackTrace(this, this.constructor);
+                }
+        }
+}
+
+/**
+ * Generates a cryptographically secure random offset for selecting a relayer fees pool account.
+ *
+ * @param _instructionSeed - The instruction seed (currently unused, reserved for future deterministic generation)
+ * @param _mintAddress - The mint address of the token (currently unused, reserved for future deterministic generation)
+ * @returns A random 16-bit unsigned integer (U16) account offset within the valid range
+ *
+ * @throws {@link AccountOffsetGenerationError} When random generation fails or conversion errors occur
+ *
+ * @remarks
+ * This function generates a random offset used to select a specific relayer fees pool account
+ * from multiple available pools. The offset is used to derive the Program Derived Address (PDA)
+ * for the selected pool account.
+ *
+ * **Security:**
+ * This function uses cryptographically secure random number generation to ensure the offset
+ * is unpredictable and cannot be manipulated by attackers.
+ *
+ * **Current Implementation:**
+ * Currently, there is only one relayer fees pool account (`NUMBER_OF_ACCOUNTS = 1`), so this
+ * function will always return `0`. The parameters `_instructionSeed` and `_mintAddress` are
+ * currently unused but reserved for future deterministic generation based on instruction
+ * context and token type.
+ *
+ * **Account Offset:**
+ * The returned offset is a 16-bit unsigned integer (U16) that must be less than the number
+ * of available accounts. It's used as part of the seed derivation for the pool account PDA.
+ *
+ * @example
+ * ```typescript
+ * // Generate a random offset for relayer fees pool selection
+ * const offset = generateRandomRelayerFeesPoolOffset(instructionSeed, mintAddress);
+ * // Use the offset to derive the pool account address
+ * const poolAccount = deriveRelayerFeesPoolAccount(offset);
+ * ```
+ */
+export function generateRandomRelayerFeesPoolOffset(
+        _instructionSeed: InstructionSeed,
+        _mintAddress: MintAddress
+): AccountOffset {
+        const NUMBER_OF_ACCOUNTS = 1;
+
+        if (NUMBER_OF_ACCOUNTS <= 0) {
+                throw new AccountOffsetGenerationError('Number of accounts must be greater than 0');
+        }
+
+        try {
+                // Generate 2 random bytes (16 bits) for U16
+                const randomBytesArray = randomBytes(2);
+                const randomU16 = convertU16LeBytesToU16(randomBytesArray as U16LeBytes);
+                const randomNumber = Number(randomU16) % NUMBER_OF_ACCOUNTS;
+
+                return BigInt(randomNumber) as AccountOffset;
+        } catch (error) {
+                throw new AccountOffsetGenerationError(
+                        `Failed to generate random relayer fees pool offset: ${error instanceof Error ? error.message : String(error)}`,
+                        error instanceof Error ? error : undefined
+                );
+        }
+}
+
+/**
+ * Generates a cryptographically secure random offset for selecting a fees configuration account.
+ *
+ * @param _instructionSeed - The instruction seed (currently unused, reserved for future deterministic generation)
+ * @param _mintAddress - The mint address of the token (currently unused, reserved for future deterministic generation)
+ * @returns A random 16-bit unsigned integer (U16) account offset within the valid range
+ *
+ * @throws {@link AccountOffsetGenerationError} When random generation fails or conversion errors occur
+ *
+ * @remarks
+ * This function generates a random offset used to select a specific fees configuration account
+ * from multiple available configurations. The offset is used to derive the Program Derived Address (PDA)
+ * for the selected configuration account.
+ *
+ * **Security:**
+ * This function uses cryptographically secure random number generation to ensure the offset
+ * is unpredictable and cannot be manipulated by attackers.
+ *
+ * **Current Implementation:**
+ * Currently, there is only one fees configuration account (`NUMBER_OF_ACCOUNTS = 1`), so this
+ * function will always return `0`. The parameters `_instructionSeed` and `_mintAddress` are
+ * currently unused but reserved for future deterministic generation based on instruction
+ * context and token type.
+ *
+ * **Account Offset:**
+ * The returned offset is a 16-bit unsigned integer (U16) that must be less than the number
+ * of available accounts. It's used as part of the seed derivation for the configuration account PDA.
+ *
+ * @example
+ * ```typescript
+ * // Generate a random offset for fees configuration account selection
+ * const offset = generateRandomFeesConfigurationAccountOffset(instructionSeed, mintAddress);
+ * // Use the offset to derive the configuration account address
+ * const configAccount = deriveFeesConfigurationAccount(offset);
+ * ```
+ */
+export function generateRandomFeesConfigurationAccountOffset(
+        _instructionSeed: InstructionSeed,
+        _mintAddress: MintAddress
+): AccountOffset {
+        const NUMBER_OF_ACCOUNTS = 1;
+
+        if (NUMBER_OF_ACCOUNTS <= 0) {
+                throw new AccountOffsetGenerationError('Number of accounts must be greater than 0');
+        }
+
+        try {
+                // Generate 2 random bytes (16 bits) for U16
+                const randomBytesArray = randomBytes(2);
+                const randomU16 = convertU16LeBytesToU16(randomBytesArray as U16LeBytes);
+                const randomNumber = Number(randomU16) % NUMBER_OF_ACCOUNTS;
+
+                return BigInt(randomNumber) as AccountOffset;
+        } catch (error) {
+                throw new AccountOffsetGenerationError(
+                        `Failed to generate random fees configuration account offset: ${error instanceof Error ? error.message : String(error)}`,
+                        error instanceof Error ? error : undefined
+                );
+        }
+}
+
+/**
+ * Generates a cryptographically secure random offset for selecting an Arcium commission fees account.
+ *
+ * @param _instructionSeed - The instruction seed (currently unused, reserved for future deterministic generation)
+ * @param _mintAddress - The mint address of the token (currently unused, reserved for future deterministic generation)
+ * @returns A random 16-bit unsigned integer (U16) account offset within the valid range
+ *
+ * @throws {@link AccountOffsetGenerationError} When random generation fails or conversion errors occur
+ *
+ * @remarks
+ * This function generates a random offset used to select a specific Arcium commission fees account
+ * from multiple available accounts. The offset is used to derive the Program Derived Address (PDA)
+ * for the selected commission fees account.
+ *
+ * **Security:**
+ * This function uses cryptographically secure random number generation to ensure the offset
+ * is unpredictable and cannot be manipulated by attackers.
+ *
+ * **Current Implementation:**
+ * Currently, there is only one Arcium commission fees account (`NUMBER_OF_ACCOUNTS = 1`), so this
+ * function will always return `0`. The parameters `_instructionSeed` and `_mintAddress` are
+ * currently unused but reserved for future deterministic generation based on instruction
+ * context and token type.
+ *
+ * **Account Offset:**
+ * The returned offset is a 16-bit unsigned integer (U16) that must be less than the number
+ * of available accounts. It's used as part of the seed derivation for the commission fees account PDA.
+ *
+ * @example
+ * ```typescript
+ * // Generate a random offset for Arcium commission fees account selection
+ * const offset = generateRandomArciumCommissionFeesAccountOffset(instructionSeed, mintAddress);
+ * // Use the offset to derive the commission fees account address
+ * const commissionAccount = deriveArciumCommissionFeesAccount(offset);
+ * ```
+ */
+export function generateRandomArciumCommissionFeesAccountOffset(
+        _instructionSeed: InstructionSeed,
+        _mintAddress: MintAddress
+): AccountOffset {
+        const NUMBER_OF_ACCOUNTS = 1;
+
+        if (NUMBER_OF_ACCOUNTS <= 0) {
+                throw new AccountOffsetGenerationError('Number of accounts must be greater than 0');
+        }
+
+        try {
+                // Generate 2 random bytes (16 bits) for U16
+                const randomBytesArray = randomBytes(2);
+                const randomU16 = convertU16LeBytesToU16(randomBytesArray as U16LeBytes);
+                const randomNumber = Number(randomU16) % NUMBER_OF_ACCOUNTS;
+
+                return BigInt(randomNumber) as AccountOffset;
+        } catch (error) {
+                throw new AccountOffsetGenerationError(
+                        `Failed to generate random Arcium commission fees account offset: ${error instanceof Error ? error.message : String(error)}`,
+                        error instanceof Error ? error : undefined
+                );
+        }
+}
+
+/**
+ * Generates a cryptographically secure random offset for selecting a public commission fees account.
+ *
+ * @param _instructionSeed - The instruction seed (currently unused, reserved for future deterministic generation)
+ * @param _mintAddress - The mint address of the token (currently unused, reserved for future deterministic generation)
+ * @returns A random 16-bit unsigned integer (U16) account offset within the valid range
+ *
+ * @throws {@link AccountOffsetGenerationError} When random generation fails or conversion errors occur
+ *
+ * @remarks
+ * This function generates a random offset used to select a specific public commission fees account
+ * from multiple available accounts. The offset is used to derive the Program Derived Address (PDA)
+ * for the selected public commission fees account.
+ *
+ * **Security:**
+ * This function uses cryptographically secure random number generation to ensure the offset
+ * is unpredictable and cannot be manipulated by attackers.
+ *
+ * **Current Implementation:**
+ * Currently, there is only one public commission fees account (`NUMBER_OF_ACCOUNTS = 1`), so this
+ * function will always return `0`. The parameters `_instructionSeed` and `_mintAddress` are
+ * currently unused but reserved for future deterministic generation based on instruction
+ * context and token type.
+ *
+ * **Account Offset:**
+ * The returned offset is a 16-bit unsigned integer (U16) that must be less than the number
+ * of available accounts. It's used as part of the seed derivation for the public commission fees account PDA.
+ *
+ * @example
+ * ```typescript
+ * // Generate a random offset for public commission fees account selection
+ * const offset = generateRandomPublicCommissionFeesAccountOffset(instructionSeed, mintAddress);
+ * // Use the offset to derive the public commission fees account address
+ * const publicCommissionAccount = derivePublicCommissionFeesAccount(offset);
+ * ```
+ */
+export function generateRandomPublicCommissionFeesAccountOffset(
+        _instructionSeed: InstructionSeed,
+        _mintAddress: MintAddress
+): AccountOffset {
+        const NUMBER_OF_ACCOUNTS = 1;
+
+        if (NUMBER_OF_ACCOUNTS <= 0) {
+                throw new AccountOffsetGenerationError('Number of accounts must be greater than 0');
+        }
+
+        try {
+                // Generate 2 random bytes (16 bits) for U16
+                const randomBytesArray = randomBytes(2);
+                const randomU16 = convertU16LeBytesToU16(randomBytesArray as U16LeBytes);
+                const randomNumber = Number(randomU16) % NUMBER_OF_ACCOUNTS;
+
+                return BigInt(randomNumber) as AccountOffset;
+        } catch (error) {
+                throw new AccountOffsetGenerationError(
+                        `Failed to generate random public commission fees account offset: ${error instanceof Error ? error.message : String(error)}`,
                         error instanceof Error ? error : undefined
                 );
         }

@@ -23,7 +23,7 @@ export type Plaintext = bigint;
 export type FlagBitsTransactionInput = { 0: BN };
 export type AmountTransactionInput = { 0: BN };
 export type BasisPointsTransactionInput = { 0: BN };
-export type AccountOffsetTransactionInput = { 0: BN };
+export type AccountOffsetTransactionInput = { 0: number };
 export type EphemeralOffsetTransactionInput = { 0: BN };
 export type YearTransactionInput = { 0: BN };
 export type MonthTransactionInput = { 0: BN };
@@ -54,7 +54,7 @@ export function convertBasisPointsToTransactionInput(
 export function convertAccountOffsetToTransactionInput(
         accountOffset: AccountOffset
 ): AccountOffsetTransactionInput {
-        return { 0: new BN(accountOffset) };
+        return { 0: Number(accountOffset) };
 }
 
 export function convertEphemeralOffsetToTransactionInput(
