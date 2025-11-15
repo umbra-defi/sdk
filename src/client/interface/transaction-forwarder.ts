@@ -6,18 +6,30 @@ import { VersionedTransaction } from '@solana/web3.js';
  * @remarks
  * This class provides a foundation for all transaction forwarder errors, ensuring consistent
  * error handling and type safety across forwarder implementations. All transaction forwarder errors
- * should extend this class.
+ * in implementations should extend this class and provide a unique error code.
+ *
+ * The error code serves as an identifier for programmatic error handling and allows implementations
+ * to define specific error types with associated codes for different failure scenarios.
  *
  * @public
  */
 export abstract class TransactionForwarderError extends Error {
+        /**
+         * Unique identifier code for this error type.
+         *
+         * @remarks
+         * This code is used to identify the specific error type programmatically.
+         * Each error subclass in implementations should define a unique code.
+         */
+        public abstract readonly code: string;
+
         /**
          * Creates a new instance of TransactionForwarderError.
          *
          * @param message - Human-readable error message describing what went wrong
          * @param cause - Optional underlying error that caused this error
          */
-        public constructor(message: string, cause?: Error) {
+        public constructor(message: string, cause?: TransactionForwarderError) {
                 super(message);
                 this.name = this.constructor.name;
                 this.cause = cause;
@@ -151,5 +163,162 @@ export abstract class ITransactionForwarder<T> {
          */
         public abstract forwardTransactions(
                 transactions: Array<VersionedTransaction>
+        ): Promise<Array<T>>;
+
+        /**
+         * Forwards multiple signed transactions to the network with a fixed delay between each transaction.
+         *
+         * @param transactions - Array of signed `VersionedTransaction` objects to forward
+         * @param delayMs - Fixed delay in milliseconds to wait between forwarding each transaction
+         * @returns A promise resolving to an array of forwarding results in the same order as input
+         *
+         * @throws {@link TransactionForwarderError} When forwarding fails for any transaction in the batch
+         *
+         * @remarks
+         * This overload submits transactions sequentially with a fixed delay between each submission.
+         * The delay helps prevent rate limiting and allows for better transaction ordering control.
+         *
+         * **Execution Flow:**
+         * 1. Forward `transactions[0]`
+         * 2. Wait `delayMs` milliseconds
+         * 3. Forward `transactions[1]`
+         * 4. Wait `delayMs` milliseconds
+         * 5. Continue for all transactions
+         *
+         * This is useful when you need to space out transactions to avoid network congestion or
+         * rate limiting issues.
+         *
+         * @example
+         * ```typescript
+         * const signedTxs = await signer.signTransactions(transactions);
+         * // Forward with 500ms delay between each transaction
+         * const results = await forwarder.forwardTransactions(signedTxs, 500);
+         * ```
+         */
+        public abstract forwardTransactions(
+                transactions: Array<VersionedTransaction>,
+                delayMs: number
+        ): Promise<Array<T>>;
+
+        /**
+         * Forwards multiple signed transactions to the network with variable delays between transactions.
+         *
+         * @param transactions - Array of signed `VersionedTransaction` objects to forward
+         * @param delaysMs - Array of delays in milliseconds between each transaction (must have length `transactions.length - 1`)
+         * @returns A promise resolving to an array of forwarding results in the same order as input
+         *
+         * @throws {@link TransactionForwarderError} When forwarding fails for any transaction in the batch or when the delays array length does not match `transactions.length - 1`
+         *
+         * @remarks
+         * This overload submits transactions sequentially with variable delays between each submission.
+         * Each delay in the array corresponds to the wait time after forwarding the transaction at
+         * the same index.
+         *
+         * **Execution Flow:**
+         * 1. Forward `transactions[0]`
+         * 2. Wait `delaysMs[0]` milliseconds
+         * 3. Forward `transactions[1]`
+         * 4. Wait `delaysMs[1]` milliseconds
+         * 5. Continue for all transactions
+         *
+         * The `delaysMs` array must have exactly `transactions.length - 1` elements, as there is
+         * one delay between each pair of transactions (no delay needed after the last transaction).
+         *
+         * This is useful when you need different delays between different transactions, such as
+         * longer delays for more critical transactions or adaptive delays based on network conditions.
+         *
+         * @example
+         * ```typescript
+         * const signedTxs = await signer.signTransactions(transactions);
+         * // Variable delays: 200ms after first, 500ms after second, 300ms after third
+         * const delays = [200, 500, 300];
+         * const results = await forwarder.forwardTransactions(signedTxs, delays);
+         * ```
+         */
+        public abstract forwardTransactions(
+                transactions: Array<VersionedTransaction>,
+                delaysMs: Array<number>
+        ): Promise<Array<T>>;
+
+        /**
+         * Forwards multiple signed transactions to the network starting from a specific offset with a fixed delay between each transaction.
+         *
+         * @param transactions - Array of signed `VersionedTransaction` objects to forward
+         * @param offset - The index in the array to start forwarding from (0-based). Transactions before this index are skipped.
+         * @param delayMs - Fixed delay in milliseconds to wait between forwarding each transaction
+         * @returns A promise resolving to an array of forwarding results in the same order as the remaining transactions
+         *
+         * @throws {@link TransactionForwarderError} When forwarding fails for any transaction in the batch or when offset is out of bounds
+         *
+         * @remarks
+         * This overload combines offset-based forwarding with a fixed delay between transactions.
+         * Transactions before the offset are skipped, and the remaining transactions are forwarded
+         * sequentially with a fixed delay between each. To forward without delay, pass `0` as `delayMs`.
+         *
+         * **Execution Flow:**
+         * 1. Skip transactions from index 0 to `offset - 1`
+         * 2. Send and confirm `transactions[offset]`
+         * 3. Wait `delayMs` milliseconds (if `delayMs > 0`)
+         * 4. Send and confirm `transactions[offset + 1]`
+         * 5. Wait `delayMs` milliseconds (if `delayMs > 0`)
+         * 6. Continue for all remaining transactions
+         *
+         * The returned array contains results only for transactions starting from the offset.
+         * For example, if `offset = 2` and there are 5 transactions, only results for
+         * `transactions[2]`, `transactions[3]`, and `transactions[4]` are returned.
+         *
+         * @example
+         * ```typescript
+         * const signedTxs = await signer.signTransactions(transactions);
+         * // Resume from index 2 with 500ms delay between each
+         * const results = await forwarder.forwardTransactions(signedTxs, 2, 500);
+         * // Or resume from index 3 without delay
+         * const results = await forwarder.forwardTransactions(signedTxs, 3, 0);
+         * ```
+         */
+        public abstract forwardTransactions(
+                transactions: Array<VersionedTransaction>,
+                offset: number,
+                delayMs: number
+        ): Promise<Array<T>>;
+
+        /**
+         * Forwards multiple signed transactions to the network starting from a specific offset with variable delays between transactions.
+         *
+         * @param transactions - Array of signed `VersionedTransaction` objects to forward
+         * @param offset - The index in the array to start forwarding from (0-based). Transactions before this index are skipped.
+         * @param delaysMs - Array of delays in milliseconds between each transaction (must have length equal to remaining transactions minus 1)
+         * @returns A promise resolving to an array of forwarding results in the same order as the remaining transactions
+         *
+         * @throws {@link TransactionForwarderError} When forwarding fails for any transaction in the batch, when offset is out of bounds, or when the delays array length does not match `(transactions.length - offset) - 1`
+         *
+         * @remarks
+         * This overload combines offset-based forwarding with variable delays between transactions.
+         * Transactions before the offset are skipped, and the remaining transactions are forwarded
+         * sequentially with variable delays between each.
+         *
+         * **Execution Flow:**
+         * 1. Skip transactions from index 0 to `offset - 1`
+         * 2. Send and confirm `transactions[offset]`
+         * 3. Wait `delaysMs[0]` milliseconds
+         * 4. Send and confirm `transactions[offset + 1]`
+         * 5. Wait `delaysMs[1]` milliseconds
+         * 6. Continue for all remaining transactions
+         *
+         * The `delaysMs` array must have exactly `(transactions.length - offset) - 1` elements,
+         * as there is one delay between each pair of remaining transactions.
+         *
+         * @example
+         * ```typescript
+         * const signedTxs = await signer.signTransactions(transactions);
+         * // Resume from index 1 with variable delays: 200ms, 500ms, 300ms
+         * const delays = [200, 500, 300];
+         * const results = await forwarder.forwardTransactions(signedTxs, 1, delays);
+         * ```
+         */
+        public abstract forwardTransactions(
+                transactions: Array<VersionedTransaction>,
+                offset: number,
+                delaysMs: Array<number>
         ): Promise<Array<T>>;
 }
