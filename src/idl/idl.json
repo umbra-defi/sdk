@@ -11978,6 +11978,14 @@
                                                         "name": "Groth16ProofC"
                                                 }
                                         }
+                                },
+                                {
+                                        "name": "optional_data",
+                                        "type": {
+                                                "defined": {
+                                                        "name": "Sha3Hash"
+                                                }
+                                        }
                                 }
                         ]
                 },

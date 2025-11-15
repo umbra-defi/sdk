@@ -11,9 +11,9 @@ export type Groth16ProofCBeBytes = BeBytes;
 export type PoseidonHashTransactionInput = { 0: Array<number> };
 export type Sha3HashTransactionInput = { 0: Array<number> };
 export type ZkMerkleTreeInsertionIndexTransactionInput = { 0: BN };
-export type Groth16ProofATransactionInput = { 0: Array<number> };
-export type Groth16ProofBTransactionInput = { 0: Array<number> };
-export type Groth16ProofCTransactionInput = { 0: Array<number> };
+export type Groth16ProofABeBytesTransactionInput = { 0: Array<number> };
+export type Groth16ProofBBeBytesTransactionInput = { 0: Array<number> };
+export type Groth16ProofCBeBytesTransactionInput = { 0: Array<number> };
 
 export function convertPoseidonHashToTransactionInput(
         poseidonHash: PoseidonHash
@@ -31,20 +31,20 @@ export function convertZkMerkleTreeInsertionIndexToTransactionInput(
         return { 0: new BN(zkMerkleTreeInsertionIndex) };
 }
 
-export function convertGroth16ProofAToTransactionInput(
+export function convertGroth16ProofABeBytesToTransactionInput(
         groth16ProofA: Groth16ProofABeBytes
-): Groth16ProofATransactionInput {
+): Groth16ProofABeBytesTransactionInput {
         return { 0: Array.from(groth16ProofA) };
 }
 
-export function convertGroth16ProofBToTransactionInput(
+export function convertGroth16ProofBBeBytesToTransactionInput(
         groth16ProofB: Groth16ProofBBeBytes
-): Groth16ProofBTransactionInput {
+): Groth16ProofBBeBytesTransactionInput {
         return { 0: Array.from(groth16ProofB) };
 }
 
-export function convertGroth16ProofCToTransactionInput(
+export function convertGroth16ProofCBeBytesToTransactionInput(
         groth16ProofC: Groth16ProofCBeBytes
-): Groth16ProofCTransactionInput {
+): Groth16ProofCBeBytesTransactionInput {
         return { 0: Array.from(groth16ProofC) };
 }

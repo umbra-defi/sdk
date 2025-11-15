@@ -20262,6 +20262,14 @@ export type Umbra = {
               "name": "groth16ProofC"
             }
           }
+        },
+        {
+          "name": "optionalData",
+          "type": {
+            "defined": {
+              "name": "sha3Hash"
+            }
+          }
         }
       ]
     },
