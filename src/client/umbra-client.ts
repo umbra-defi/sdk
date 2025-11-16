@@ -903,6 +903,115 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         }
 
         /**
+         * Registers the user's Umbra account for both confidentiality and anonymity in a single
+         * transaction.
+         *
+         * @remarks
+         * This method combines the behavior of {@link registerAccountForConfidentiality} and
+         * {@link registerAccountForAnonymity}:
+         *
+         * - Ensures the Arcium-encrypted user account is initialised and active
+         * - Converts the account from MXE-encrypted form to shared form if required
+         * - Registers the master viewing key and its blinding factors on-chain via a Groth16 proof
+         *
+         * All operations are encoded as a single transaction, with the master viewing key
+         * registration instruction appended last.
+         *
+         * The same `mode` options as the other registration methods are supported:
+         * - `'connection'` (default), `'forwarder'`, `'signed'`, `'prepared'`, `'raw'`.
+         */
+        public async registerAccountForConfidentialityAndAnonymity(
+                optionalData: Sha3Hash
+        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        public async registerAccountForConfidentialityAndAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'connection' }
+        ): Promise<SolanaTransactionSignature>;
+        public async registerAccountForConfidentialityAndAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'forwarder' }
+        ): Promise<T>;
+        public async registerAccountForConfidentialityAndAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async registerAccountForConfidentialityAndAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async registerAccountForConfidentialityAndAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async registerAccountForConfidentialityAndAnonymity(
+                optionalData: Sha3Hash,
+                opts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
+        ): Promise<SolanaTransactionSignature | T | VersionedTransaction> {
+                const mode = opts?.mode ?? 'connection';
+
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to register account for confidentiality and anonymity'
+                        );
+                }
+                if (!this.zkProver) {
+                        throw new UmbraClientError(
+                                'ZK prover is required to register account for confidentiality and anonymity'
+                        );
+                }
+
+                // The anonymity instruction builder already ensures the account is initialised,
+                // active, converted from MXE to shared form when necessary, and that the master
+                // viewing key registration instruction is appended last.
+                const { userPublicKey, instructions } =
+                        await this.buildRegisterAccountForAnonymityInstructions(optionalData);
+
+                if (mode === 'raw') {
+                        const rawMessage = new TransactionMessage({
+                                payerKey: userPublicKey,
+                                recentBlockhash: '11111111111111111111111111111111',
+                                instructions,
+                        }).compileToV0Message();
+
+                        return new VersionedTransaction(rawMessage);
+                }
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const preparedMessage = new TransactionMessage({
+                        payerKey: userPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions,
+                }).compileToV0Message();
+
+                const preparedTransaction = new VersionedTransaction(preparedMessage);
+
+                if (mode === 'prepared') {
+                        return preparedTransaction;
+                }
+
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(preparedTransaction);
+
+                if (mode === 'signed') {
+                        return signedTransaction;
+                }
+
+                if (mode === 'forwarder') {
+                        if (!this.txForwarder) {
+                                throw new UmbraClientError(
+                                        'No transaction forwarder configured on UmbraClient'
+                                );
+                        }
+                        return await this.txForwarder.forwardTransaction(signedTransaction);
+                }
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
          * Internal helper that builds the instructions required to register the user's account
          * for anonymity (including master viewing key registration), based on the current on-chain
          * account state and the provided optional data.
