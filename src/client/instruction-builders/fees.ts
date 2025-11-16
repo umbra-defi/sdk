@@ -10,7 +10,10 @@ import {
 } from '@/types';
 import { generateRandomComputationOffset, getArciumAccounts } from '@/utils/arcium';
 import { TransactionInstruction } from '@solana/web3.js';
-import { getArciumCommissionFeesPoolPda } from '@/utils/pda-generators';
+import {
+        getArciumCommissionFeesPoolPda,
+        getPublicCommissionFeesPoolPda,
+} from '@/utils/pda-generators';
 
 /**
  * Error thrown when instruction building fails.
@@ -294,6 +297,93 @@ export async function buildCollectCommissionFeesFromCommissionFeesPoolInstructio
                 }
                 throw new InstructionBuildingError(
                         `Failed to build collect commission fees from commission fees pool instruction: ${error instanceof Error ? error.message : String(error)}`,
+                        error instanceof Error ? error : undefined
+                );
+        }
+}
+
+/**
+ * Builds a transaction instruction for initialising a public commission fees pool account.
+ *
+ * @param txAccounts - The accounts required for the transaction:
+ *   - `signer`: The account that will sign and pay for the transaction.
+ *   - `mint`: The mint address of the token for which the public commission fees pool is created.
+ * @param txArgs - The transaction arguments:
+ *   - `instructionSeed`: The instruction seed used for account derivation.
+ *   - `accountOffset`: The account offset used for account derivation.
+ * @returns A promise resolving to the constructed {@link TransactionInstruction}.
+ *
+ * @throws {@link InstructionBuildingError}
+ * When PDA derivation fails, conversion errors occur, or instruction building fails.
+ *
+ * @remarks
+ * The public commission fees pool holds commission fees that are publicly visible (as opposed to
+ * private/Arcium‑internal pools), and is used for accounting and collection of protocol‑level fees.
+ *
+ * The account is derived as a PDA from:
+ * - The token mint address
+ * - The instruction seed
+ * - The account offset
+ *
+ * @example
+ * ```ts
+ * const ix = await buildInitialisePublicCommissionFeesPoolInstruction(
+ *   {
+ *     signer: signerPublicKey,
+ *     mint: tokenMintAddress,
+ *   },
+ *   {
+ *     instructionSeed: BigInt(42) as InstructionSeed,
+ *     accountOffset: BigInt(0) as AccountOffset,
+ *   },
+ * );
+ * ```
+ */
+export async function buildInitialisePublicCommissionFeesPoolInstruction(
+        txAccounts: {
+                signer: SolanaAddress;
+                mint: MintAddress;
+        },
+        txArgs: {
+                instructionSeed: InstructionSeed;
+                accountOffset: AccountOffset;
+        }
+): Promise<TransactionInstruction> {
+        try {
+                const publicCommissionFeesPoolAccount = getPublicCommissionFeesPoolPda(
+                        txAccounts.mint,
+                        txArgs.instructionSeed,
+                        txArgs.accountOffset
+                );
+
+                const ixBuilder = program.methods
+                        .initialisePublicCommissionFees(
+                                convertInstructionSeedToTransactionInput(txArgs.instructionSeed),
+                                convertAccountOffsetToTransactionInput(txArgs.accountOffset)
+                        )
+                        .accountsPartial({
+                                signer: txAccounts.signer,
+                                publicCommissionFeesPool: publicCommissionFeesPoolAccount,
+                                mint: txAccounts.mint,
+                        });
+
+                const instruction = await ixBuilder.instruction();
+
+                if (!instruction) {
+                        throw new InstructionBuildingError(
+                                'Instruction builder returned null or undefined'
+                        );
+                }
+
+                return instruction;
+        } catch (error) {
+                if (error instanceof InstructionBuildingError) {
+                        throw error;
+                }
+                throw new InstructionBuildingError(
+                        `Failed to build initialise public commission fees pool instruction: ${
+                                error instanceof Error ? error.message : String(error)
+                        }`,
                         error instanceof Error ? error : undefined
                 );
         }

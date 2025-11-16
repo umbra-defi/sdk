@@ -1,15 +1,19 @@
 import { UmbraWallet, UmbraWalletError } from '@/client/umbra-wallet';
 import { ITransactionForwarder, ISigner, IZkProver } from '@/client/interface';
 import {
+        AccountOffset,
         Amount,
         ArciumX25519Nonce,
         BasisPoints,
         Day,
         Hour,
+        InstructionSeed,
         MintAddress,
         Minute,
         Month,
+        NumberOfTransactions,
         RescueCiphertext,
+        RiskThreshold,
         Second,
         Sha3Hash,
         SolanaAddress,
@@ -52,6 +56,18 @@ import {
         buildDepositIntoMixerPoolSplInstruction,
 } from './instruction-builders/deposit';
 import { WSOL_MINT_ADDRESS } from '@/constants/anchor';
+import {
+        buildInitialiseMasterWalletSpecifierInstruction,
+        buildInitialiseMixerPoolInstruction,
+        buildInitialiseProgramInformationInstruction,
+        buildInitialiseWalletSpecifierInstruction,
+        buildInitialiseZkMerkleTreeInstruction,
+} from './instruction-builders/global';
+import {
+        buildInitialiseRelayerAccountInstruction,
+        buildInitialiseRelayerFeesPoolInstruction,
+} from './instruction-builders/relayer';
+import { buildInitialisePublicCommissionFeesPoolInstruction } from './instruction-builders/fees';
 
 /**
  * Error thrown when adding an Umbra wallet to the client fails.
@@ -2085,13 +2101,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        ): Promise<SolanaTransactionSignature>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        ): Promise<SolanaTransactionSignature>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -2366,5 +2382,581 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         commissionFeesLowerBound: 0n as Amount,
                         commissionFeesUpperBound: 0n as Amount,
                 };
+        }
+
+        /**
+         * Initialises or updates global program‑level information for the Umbra protocol.
+         *
+         * @param minimumNumberOfTransactions - Minimum number of transactions required for certain
+         *        protocol‑level compliance checks (branded as {@link NumberOfTransactions}).
+         * @param riskThreshold - Risk threshold configuration used by the protocol
+         *        (branded as {@link RiskThreshold}).
+         * @param optionalData - Optional SHA‑3 hash for attaching additional metadata to the
+         *        initialisation, branded as {@link Sha3Hash}.
+         * @returns A {@link SolanaTransactionSignature} for the submitted initialisation transaction.
+         *
+         * @remarks
+         * This helper builds and sends a single `initialise_program_information` instruction via
+         * the client's `connectionBasedForwarder`. It:
+         *
+         * - Uses the client's `UmbraWallet` signer as both the payer and protocol signer.
+         * - Fetches a recent blockhash from the underlying `Connection`.
+         * - Signs the resulting {@link VersionedTransaction} with the `UmbraWallet`.
+         *
+         * The method will throw if:
+         *
+         * - No Umbra wallet has been configured on the client.
+         * - The latest blockhash cannot be fetched from the network.
+         * - Transaction signing fails.
+         * - Forwarding the transaction via `connectionBasedForwarder` fails.
+         *
+         * @example
+         * ```ts
+         * const txSig = await client.initialiseProgramInformation(
+         *   100n as NumberOfTransactions,
+         *   someRiskThreshold,
+         *   someOptionalDataSha3Hash,
+         * );
+         * console.log('Initialise program information tx:', txSig);
+         * ```
+         */
+        public async initialiseProgramInformation(
+                minimumNumberOfTransactions: NumberOfTransactions,
+                riskThreshold: RiskThreshold,
+                optionalData: Sha3Hash
+        ): Promise<SolanaTransactionSignature> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to initialise program information'
+                        );
+                }
+
+                const signerPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const instruction = await buildInitialiseProgramInformationInstruction(
+                        {
+                                signer: signerPublicKey,
+                        },
+                        {
+                                minimumNumberOfTransactions,
+                                riskThreshold,
+                                optionalData,
+                        }
+                );
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: signerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions: [instruction],
+                }).compileToV0Message();
+
+                const versionedTransaction = new VersionedTransaction(transactionMessage);
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(versionedTransaction);
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Initialises the master wallet specifier, configuring which address is allowed to act
+         * as the "master" wallet for protocol‑level operations.
+         *
+         * @param allowedAddress - The {@link SolanaAddress} that will be authorised as the master wallet.
+         * @returns A {@link SolanaTransactionSignature} for the submitted initialisation transaction.
+         *
+         * @remarks
+         * This helper builds and submits a single `initialise_master_wallet_specifier` instruction
+         * using the client's `UmbraWallet` signer as both:
+         *
+         * - The payer (fee‑payer for the transaction), and
+         * - The protocol signer for the master wallet specifier initialisation.
+         *
+         * The method will throw if:
+         *
+         * - No Umbra wallet has been configured on the client.
+         * - The latest blockhash cannot be fetched from the network.
+         * - Transaction signing fails.
+         * - Forwarding the transaction via `connectionBasedForwarder` fails.
+         *
+         * @example
+         * ```ts
+         * const masterWalletAddress: SolanaAddress = /* obtain address *\/;
+         * const txSig = await client.initialiseMasterWalletSpecifier(masterWalletAddress);
+         * console.log('Initialise master wallet specifier tx:', txSig);
+         * ```
+         */
+        public async initialiseMasterWalletSpecifier(
+                allowedAddress: SolanaAddress
+        ): Promise<SolanaTransactionSignature> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to initialise the master wallet specifier'
+                        );
+                }
+
+                const signerPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const instruction = await buildInitialiseMasterWalletSpecifierInstruction(
+                        {
+                                signer: signerPublicKey,
+                        },
+                        {
+                                allowedAddress,
+                        }
+                );
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: signerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions: [instruction],
+                }).compileToV0Message();
+
+                const versionedTransaction = new VersionedTransaction(transactionMessage);
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(versionedTransaction);
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Initialises a wallet specifier entry for a given instruction seed and allowed address.
+         *
+         * @param instructionSeed - The {@link InstructionSeed} used to domain‑separate this specifier.
+         * @param allowedAddress - The {@link SolanaAddress} that will be authorised for the given seed.
+         * @param optionalData - Optional SHA‑3 hash used to attach additional metadata to the specifier.
+         * @returns A {@link SolanaTransactionSignature} for the submitted initialisation transaction.
+         *
+         * @remarks
+         * Wallet specifiers allow the protocol to associate specific instruction seeds with
+         * authorised Solana addresses. This helper:
+         *
+         * - Uses the client's `UmbraWallet` signer as both the payer and the protocol signer.
+         * - Builds a single `initialise_wallet_specifier` instruction.
+         * - Fetches a recent blockhash from the `connectionBasedForwarder`.
+         * - Signs and forwards the resulting {@link VersionedTransaction}.
+         *
+         * It will throw if:
+         *
+         * - No Umbra wallet has been configured on the client.
+         * - The latest blockhash cannot be fetched.
+         * - Transaction signing fails.
+         * - Forwarding the transaction fails.
+         *
+         * @example
+         * ```ts
+         * const txSig = await client.initialiseWalletSpecifier(
+         *   1 as InstructionSeed,
+         *   someAllowedAddress,
+         *   someOptionalDataSha3Hash,
+         * );
+         * console.log('Initialise wallet specifier tx:', txSig);
+         * ```
+         */
+        public async initialiseWalletSpecifier(
+                instructionSeed: InstructionSeed,
+                allowedAddress: SolanaAddress,
+                optionalData: Sha3Hash
+        ): Promise<SolanaTransactionSignature> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to initialise a wallet specifier'
+                        );
+                }
+
+                const signerPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const instruction = await buildInitialiseWalletSpecifierInstruction(
+                        {
+                                signer: signerPublicKey,
+                        },
+                        {
+                                instructionSeed,
+                                allowedAddress,
+                                optionalData,
+                        }
+                );
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: signerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions: [instruction],
+                }).compileToV0Message();
+
+                const versionedTransaction = new VersionedTransaction(transactionMessage);
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(versionedTransaction);
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Initialises a relayer account for a given SPL mint and endpoint.
+         *
+         * @param mintAddress - The SPL {@link MintAddress} that this relayer will serve.
+         * @param endpoint - A {@link Sha3Hash} identifying or committing to the relayer's endpoint
+         *        (e.g. URL or service identifier).
+         * @returns A {@link SolanaTransactionSignature} for the submitted relayer initialisation transaction.
+         *
+         * @remarks
+         * This helper:
+         *
+         * - Uses the client's `UmbraWallet` signer as the relayer authority and fee payer.
+         * - Builds a single `initialise_relayer_account` instruction for the specified `mintAddress`.
+         * - Fetches a recent blockhash from the underlying `Connection`.
+         * - Signs and forwards the resulting {@link VersionedTransaction}.
+         *
+         * It will throw if:
+         *
+         * - No Umbra wallet has been configured on the client.
+         * - The latest blockhash cannot be fetched.
+         * - Transaction signing fails.
+         * - Forwarding the transaction fails.
+         *
+         * @example
+         * ```ts
+         * const txSig = await client.initialiseRelayerAccount(
+         *   someMintAddress,
+         *   someEndpointSha3Hash,
+         * );
+         * console.log('Initialise relayer account tx:', txSig);
+         * ```
+         */
+        public async initialiseRelayerAccount(
+                mintAddress: MintAddress,
+                endpoint: Sha3Hash
+        ): Promise<SolanaTransactionSignature> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to initialise a relayer account'
+                        );
+                }
+
+                const relayerPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const instruction = await buildInitialiseRelayerAccountInstruction(
+                        {
+                                relayer: relayerPublicKey,
+                                mint: mintAddress,
+                        },
+                        {
+                                endpoint,
+                        }
+                );
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: relayerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions: [instruction],
+                }).compileToV0Message();
+
+                const versionedTransaction = new VersionedTransaction(transactionMessage);
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(versionedTransaction);
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Initialises a relayer fees account for a given SPL mint and account offset.
+         *
+         * @param mintAddress - The SPL {@link MintAddress} whose relayer fees pool should be initialised.
+         * @param instructionSeed - The {@link InstructionSeed} used for deriving configuration PDAs.
+         * @param accountOffset - The {@link AccountOffset} identifying the specific relayer fees pool.
+         * @returns A {@link SolanaTransactionSignature} for the relayer fees account initialisation tx.
+         *
+         * @remarks
+         * This helper:
+         *
+         * - Uses the client's `UmbraWallet` signer as the relayer authority and payer.
+         * - Builds an `initialise_relayer_fees_pool` instruction for the given mint/offset.
+         * - Fetches a recent blockhash, signs the transaction, and forwards it via
+         *   `connectionBasedForwarder`.
+         *
+         * It will throw if:
+         *
+         * - No Umbra wallet has been configured on the client.
+         * - The latest blockhash cannot be fetched.
+         * - Transaction signing fails.
+         * - Forwarding the transaction fails.
+         *
+         * @example
+         * ```ts
+         * const txSig = await client.initialiseRelayerFeesAccount(
+         *   someMintAddress,
+         *   1 as InstructionSeed,
+         *   someAccountOffset,
+         * );
+         * console.log('Initialise relayer fees account tx:', txSig);
+         * ```
+         */
+        public async initialiseRelayerFeesAccount(
+                mintAddress: MintAddress,
+                instructionSeed: InstructionSeed,
+                accountOffset: AccountOffset
+        ): Promise<SolanaTransactionSignature> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to initialise a relayer fees account'
+                        );
+                }
+
+                const relayerPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const instruction = await buildInitialiseRelayerFeesPoolInstruction(
+                        {
+                                relayer: relayerPublicKey,
+                                mint: mintAddress,
+                        },
+                        {
+                                instructionSeed,
+                                accountOffset,
+                        }
+                );
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: relayerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions: [instruction],
+                }).compileToV0Message();
+
+                const versionedTransaction = new VersionedTransaction(transactionMessage);
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(versionedTransaction);
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Initialises a public commission fees pool account for a given SPL mint and account offset.
+         *
+         * @param mintAddress - The SPL {@link MintAddress} whose public commission fees pool should be initialised.
+         * @param instructionSeed - The {@link InstructionSeed} used for deriving the pool PDA.
+         * @param accountOffset - The {@link AccountOffset} identifying the specific commission pool.
+         * @returns A {@link SolanaTransactionSignature} for the public commission fees pool initialisation tx.
+         *
+         * @remarks
+         * This helper:
+         *
+         * - Uses the client's `UmbraWallet` signer as the payer and protocol signer.
+         * - Builds an `initialise_public_commission_fees` instruction via the instruction builder.
+         * - Fetches a recent blockhash, signs the transaction, and forwards it using
+         *   `connectionBasedForwarder`.
+         *
+         * It will throw if:
+         *
+         * - No Umbra wallet has been configured on the client.
+         * - The latest blockhash cannot be fetched.
+         * - Transaction signing fails.
+         * - Forwarding the transaction fails.
+         *
+         * @example
+         * ```ts
+         * const txSig = await client.initialisePublicCommissionFeesPool(
+         *   someMintAddress,
+         *   1 as InstructionSeed,
+         *   someAccountOffset,
+         * );
+         * console.log('Initialise public commission fees pool tx:', txSig);
+         * ```
+         */
+        public async initialisePublicCommissionFeesPool(
+                mintAddress: MintAddress,
+                instructionSeed: InstructionSeed,
+                accountOffset: AccountOffset
+        ): Promise<SolanaTransactionSignature> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to initialise a public commission fees pool'
+                        );
+                }
+
+                const signerPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const instruction = await buildInitialisePublicCommissionFeesPoolInstruction(
+                        {
+                                signer: signerPublicKey,
+                                mint: mintAddress,
+                        },
+                        {
+                                instructionSeed,
+                                accountOffset,
+                        }
+                );
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: signerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions: [instruction],
+                }).compileToV0Message();
+
+                const versionedTransaction = new VersionedTransaction(transactionMessage);
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(versionedTransaction);
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Initialises the on-chain ZK Merkle tree for a given SPL mint.
+         *
+         * @param mintAddress - The SPL {@link MintAddress} whose ZK Merkle tree should be initialised.
+         * @param optionalData - Optional {@link Sha3Hash} used to attach additional metadata.
+         * @returns A {@link SolanaTransactionSignature} for the ZK Merkle tree initialisation tx.
+         *
+         * @remarks
+         * This helper:
+         *
+         * - Uses the client's `UmbraWallet` signer as the payer and protocol signer.
+         * - Builds an `initialise_zk_merkle_tree` instruction for the specified mint.
+         * - Fetches a recent blockhash, signs the transaction, and forwards it via
+         *   `connectionBasedForwarder`.
+         *
+         * It will throw if:
+         *
+         * - No Umbra wallet has been configured on the client.
+         * - The latest blockhash cannot be fetched.
+         * - Transaction signing fails.
+         * - Forwarding the transaction fails.
+         *
+         * @example
+         * ```ts
+         * const txSig = await client.initialiseZkMerkleTree(
+         *   someMintAddress,
+         *   someOptionalDataSha3Hash,
+         * );
+         * console.log('Initialise ZK Merkle tree tx:', txSig);
+         * ```
+         */
+        public async initialiseZkMerkleTree(
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash
+        ): Promise<SolanaTransactionSignature> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to initialise a ZK Merkle tree'
+                        );
+                }
+
+                const signerPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const instruction = await buildInitialiseZkMerkleTreeInstruction(
+                        {
+                                mint: mintAddress,
+                                signer: signerPublicKey,
+                        },
+                        {
+                                optionalData,
+                        }
+                );
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: signerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions: [instruction],
+                }).compileToV0Message();
+
+                const versionedTransaction = new VersionedTransaction(transactionMessage);
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(versionedTransaction);
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Initialises the on-chain mixer pool for a given SPL mint.
+         *
+         * @param mintAddress - The SPL {@link MintAddress} whose mixer pool should be initialised.
+         * @param optionalData - Optional {@link Sha3Hash} used to attach additional metadata.
+         * @returns A {@link SolanaTransactionSignature} for the mixer pool initialisation tx.
+         *
+         * @remarks
+         * This helper:
+         *
+         * - Uses the client's `UmbraWallet` signer as the payer and protocol signer.
+         * - Builds an `initialise_mixer_pool` instruction for the specified mint.
+         * - Fetches a recent blockhash, signs the transaction, and forwards it via
+         *   `connectionBasedForwarder`.
+         *
+         * It will throw if:
+         *
+         * - No Umbra wallet has been configured on the client.
+         * - The latest blockhash cannot be fetched.
+         * - Transaction signing fails.
+         * - Forwarding the transaction fails.
+         *
+         * @example
+         * ```ts
+         * const txSig = await client.initialiseMixerPool(
+         *   someMintAddress,
+         *   someOptionalDataSha3Hash,
+         * );
+         * console.log('Initialise mixer pool tx:', txSig);
+         * ```
+         */
+        public async initialiseMixerPool(
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash
+        ): Promise<SolanaTransactionSignature> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to initialise a mixer pool'
+                        );
+                }
+
+                const signerPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const instruction = await buildInitialiseMixerPoolInstruction(
+                        {
+                                signer: signerPublicKey,
+                                mint: mintAddress,
+                        },
+                        {
+                                optionalData,
+                        }
+                );
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: signerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions: [instruction],
+                }).compileToV0Message();
+
+                const versionedTransaction = new VersionedTransaction(transactionMessage);
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(versionedTransaction);
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
         }
 }

@@ -423,6 +423,7 @@ export async function buildFreezeMixerPoolInstruction(
  *
  * @param txAccounts - The accounts required for the transaction:
  *   - `mint`: The mint address of the token for the mixer pool
+ *   - `signer`: The signer account authorized to initialize the mixer pool
  * @param txArgs - The transaction arguments:
  *   - `optionalData`: Optional SHA3 hash for additional data
  * @returns A promise resolving to the constructed transaction instruction
@@ -449,6 +450,7 @@ export async function buildFreezeMixerPoolInstruction(
  * const instruction = await buildInitialiseMixerPoolInstruction(
  *   {
  *     mint: tokenMintAddress,
+ *     signer: authorizedSigner,
  *   },
  *   {
  *     optionalData: optionalDataHash,
@@ -458,6 +460,7 @@ export async function buildFreezeMixerPoolInstruction(
  */
 export async function buildInitialiseMixerPoolInstruction(
         txAccounts: {
+                signer: SolanaAddress;
                 mint: MintAddress;
         },
         txArgs: {
@@ -469,6 +472,7 @@ export async function buildInitialiseMixerPoolInstruction(
                         .initialiseMixerPool(convertSha3HashToTransactionInput(txArgs.optionalData))
                         .accountsPartial({
                                 mint: txAccounts.mint,
+                                signer: txAccounts.signer,
                         });
 
                 const instruction = await ixBuilder.instruction();
