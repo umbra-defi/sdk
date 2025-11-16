@@ -554,10 +554,10 @@ export class UmbraWallet {
          */
         public static getPurposeCode(purpose: string): U128 {
                 const PURPOSE_CODES_MAPPER: Map<string, U128> = new Map([
-                        ['claim_spl_deposit_with_hidden_amount', 0n as U128],
-                        ['claim_spl_deposit_with_public_amount', 1n as U128],
-                        ['create_spl_deposit_with_hidden_amount', 2n as U128],
-                        ['create_spl_deposit_with_public_amount', 3n as U128],
+                        ['create_spl_deposit_with_hidden_amount', 0n as U128],
+                        ['create_spl_deposit_with_public_amount', 1n as U128],
+                        ['claim_spl_deposit_with_hidden_amount', 2n as U128],
+                        ['claim_spl_deposit_with_public_amount', 3n as U128],
                 ]);
 
                 const purposeCode = PURPOSE_CODES_MAPPER.get(purpose);
@@ -605,7 +605,7 @@ export class UmbraWallet {
          * // Returns a 32-byte PoseidonHash
          * ```
          */
-        public generateLinkerHash(
+        public generateIndividualTransactionViewingKey(
                 purpose:
                         | 'claim_spl_deposit_with_hidden_amount'
                         | 'claim_spl_deposit_with_public_amount'
@@ -631,6 +631,43 @@ export class UmbraWallet {
                 ]);
         }
 
+        public generateLinkerHash(
+                purpose:
+                        | 'claim_spl_deposit_with_hidden_amount'
+                        | 'claim_spl_deposit_with_public_amount'
+                        | 'create_spl_deposit_with_hidden_amount'
+                        | 'create_spl_deposit_with_public_amount',
+                time: Time,
+                address: SolanaAddress
+        ): PoseidonHash {
+                const dateObj = new Date(Number(time) * 1000);
+                const year = dateObj.getUTCFullYear();
+                const month = dateObj.getUTCMonth() + 1; // Months are zero-based
+                const day = dateObj.getUTCDate();
+                const hour = dateObj.getUTCHours();
+                const minute = dateObj.getUTCMinutes();
+                const second = dateObj.getUTCSeconds();
+
+                const [addressLow, addressHigh] = breakPublicKeyIntoTwoParts(address);
+
+                const individualTransactionViewingKey =
+                        this.generateIndividualTransactionViewingKey(
+                                purpose,
+                                BigInt(year) as Year,
+                                BigInt(month) as Month,
+                                BigInt(day) as Day,
+                                BigInt(hour) as Hour,
+                                BigInt(minute) as Minute,
+                                BigInt(second) as Second
+                        );
+
+                return PoseidonHasher.hash([
+                        convertU256LeBytesToU256(individualTransactionViewingKey),
+                        addressLow,
+                        addressHigh,
+                ]);
+        }
+
         /**
          * Signs a message using the wallet's signer.
          *
@@ -652,37 +689,6 @@ export class UmbraWallet {
         public async signMessage(message: Bytes): Promise<SolanaSignature> {
                 const signature = await this.signer.signMessage(message);
                 return signature;
-        }
-
-        /**
-         * Signs a message using a one-time ephemeral Ed25519 keypair.
-         *
-         * @param message - The message bytes to sign
-         * @returns A promise resolving to the signature and the ephemeral public key bytes
-         *
-         * @remarks
-         * This method generates a fresh Ed25519 keypair for each call using the noble
-         * Ed25519 implementation. The private key is used immediately to sign the
-         * provided message and is not stored on the wallet instance.
-         *
-         * The returned public key can be used by the caller to verify the signature
-         * or to include the ephemeral key in on-chain data structures.
-         */
-        public async signMessageWithEphemeralKeypair(message: Bytes): Promise<{
-                signature: SolanaSignature;
-                ephemeralPublicKey: Bytes;
-        }> {
-                // Generate a fresh Ed25519 private key and corresponding public key
-                const privateKey = ed25519.utils.randomSecretKey();
-                const publicKey = ed25519.getPublicKey(privateKey) as Bytes;
-
-                // Sign the message with the ephemeral private key
-                const signature = ed25519.sign(message, privateKey) as SolanaSignature;
-
-                return {
-                        signature,
-                        ephemeralPublicKey: publicKey,
-                };
         }
 
         /**
@@ -851,74 +857,5 @@ export class UmbraWallet {
                         nullifierMasterSeed
                 ) as U128BeBytes;
                 return convertU128BeBytesToU128(nullifierBeBytes);
-        }
-
-        /**
-         * Generates a linker hash binding a deposit into the mixer pool to a specific destination.
-         *
-         * @param purpose - The deposit purpose, distinguishing SOL vs SPL mixer pools.
-         * @param time - The deposit time as a {@link Time} value (seconds since Unix epoch).
-         * @param destinationAddress - The Solana address where funds are intended to be withdrawn.
-         * @returns A {@link PoseidonHash} that links the deposit to the destination address and time.
-         *
-         * @remarks
-         * This function derives an *individual transaction viewing key* by hashing:
-         * - The wallet's master viewing key
-         * - A purpose code derived from `purpose`
-         * - The UTC breakdown of `time` (year, month, day, hour, minute, second)
-         *
-         * It then combines this viewing key with the destination address (split into two 128-bit
-         * limbs) in a second Poseidon hash to produce the final linker hash. This hash can be used
-         * to cryptographically link a deposit into the mixer pool with a particular destination
-         * address and timestamp, while still preserving the anonymity properties of the mixer.
-         *
-         * @example
-         * ```ts
-         * const now: Time = BigInt(Math.floor(Date.now() / 1000)) as Time; // seconds since epoch
-         * const linkerHash = wallet.generateLinkerHashForDepositsIntoMixerPool(
-         *   'deposit_into_mixer_pool_spl',
-         *   now,
-         *   destinationAddress,
-         * );
-         * console.log(linkerHash.toString());
-         * ```
-         */
-        public generateLinkerHashForDepositsIntoMixerPool(
-                purpose: 'deposit_into_mixer_pool_sol' | 'deposit_into_mixer_pool_spl',
-                time: Time,
-                destinationAddress: SolanaAddress
-        ): PoseidonHash {
-                const purposeCode = UmbraWallet.getPurposeCode(purpose);
-
-                // Convert the protocol `Time` value (seconds since epoch) to a JavaScript `Date`.
-                const utcDate = new Date(Number(time) * 1000);
-                const year = BigInt(utcDate.getUTCFullYear());
-                const month = BigInt(utcDate.getUTCMonth() + 1); // getUTCMonth() is 0-indexed
-                const day = BigInt(utcDate.getUTCDate());
-                const hour = BigInt(utcDate.getUTCHours());
-                const minute = BigInt(utcDate.getUTCMinutes());
-                const second = BigInt(utcDate.getUTCSeconds());
-
-                const individualTransactionViewingKey = PoseidonHasher.hash([
-                        this.masterViewingKey,
-                        purposeCode,
-                        year,
-                        month,
-                        day,
-                        hour,
-                        minute,
-                        second,
-                ]);
-
-                const [destinationAddressLo, destinationAddressHi] =
-                        breakPublicKeyIntoTwoParts(destinationAddress);
-
-                const linkerHash = PoseidonHasher.hash([
-                        convertU256LeBytesToU256(individualTransactionViewingKey),
-                        destinationAddressLo,
-                        destinationAddressHi,
-                ]);
-
-                return linkerHash;
         }
 }

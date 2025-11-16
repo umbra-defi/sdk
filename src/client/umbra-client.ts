@@ -4,6 +4,8 @@ import {
         AccountOffset,
         Amount,
         ArciumX25519Nonce,
+        ArciumX25519PublicKey,
+        ArciumX25519SecretKey,
         BasisPoints,
         Day,
         Hour,
@@ -12,6 +14,7 @@ import {
         Minute,
         Month,
         NumberOfTransactions,
+        PoseidonHash,
         RescueCiphertext,
         RiskThreshold,
         Second,
@@ -19,9 +22,11 @@ import {
         SolanaAddress,
         SolanaTransactionSignature,
         Time,
+        U128,
         U256,
         U256BeBytes,
         U256LeBytes,
+        U64,
         Year,
 } from '@/types';
 import { ConnectionBasedForwarder } from '@/client/implementation/connection-based-forwarder';
@@ -40,20 +45,36 @@ import {
         getArciumEncryptedTokenAccountPda,
         getArciumEncryptedUserAccountPda,
 } from '@/utils/pda-generators';
-import { breakPublicKeyIntoTwoParts, generateRandomU256, isBitSet } from '@/utils/miscellaneous';
-import { buildInitialiseArciumEncryptedUserAccountInstruction } from './instruction-builders/account-initialisation';
+import {
+        breakPublicKeyIntoTwoParts,
+        generateRandomBlindingFactor,
+        generateRandomU256,
+        isBitSet,
+} from '@/utils/miscellaneous';
+import {
+        buildInitialiseArciumEncryptedTokenAccountInstruction,
+        buildInitialiseArciumEncryptedUserAccountInstruction,
+} from './instruction-builders/account-initialisation';
 import {
         buildConvertUserAccountFromMxeToSharedInstruction,
         buildUpdateMasterViewingKeyInstruction,
 } from './instruction-builders/conversion';
 import { MXE_ARCIUM_X25519_PUBLIC_KEY } from '@/constants';
 import { sha3_256 } from '@noble/hashes/sha3.js';
-import { convertU128ToBeBytes } from '@/utils/convertors';
+import {
+        convertU128ToBeBytes,
+        convertU128ToLeBytes,
+        convertU256ToLeBytes,
+} from '@/utils/convertors';
 import { aggregateSha3HashIntoSinglePoseidonRoot, PoseidonHasher } from '@/utils/hasher';
 import { WasmZkProver, WasmZkProverConfig } from '@/client/implementation/wasm-zk-prover';
 import {
         buildDepositIntoMixerSolInstruction,
         buildDepositIntoMixerPoolSplInstruction,
+        buildNewTokenDepositMxeInstruction,
+        buildExistingTokenDepositSharedInstruction,
+        buildExistingTokenDepositMxeInstruction,
+        buildNewTokenDepositSharedInstruction,
 } from './instruction-builders/deposit';
 import { WSOL_MINT_ADDRESS } from '@/constants/anchor';
 import {
@@ -68,6 +89,9 @@ import {
         buildInitialiseRelayerFeesPoolInstruction,
 } from './instruction-builders/relayer';
 import { buildInitialisePublicCommissionFeesPoolInstruction } from './instruction-builders/fees';
+import { kmac256 } from '@noble/hashes/sha3-addons.js';
+import { x25519 } from '@noble/curves/ed25519.js';
+import { RescueCipher } from './implementation';
 
 /**
  * Error thrown when adding an Umbra wallet to the client fails.
@@ -1407,8 +1431,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @param amount - The amount of SOL to deposit into the mixer pool.
          * @param destinationAddress - The Solana address where withdrawn funds should ultimately be sent.
          * @param opts - Optional transaction handling mode (see remarks).
-         * @returns Depending on the `mode`, a tuple `[index, value]` where:
+         * @returns Depending on the `mode`, a tuple `[index, relayerPublicKey, claimableBalance, value]` where:
          * - `index` is the {@link U256} nullifier index used to derive the random secret and nullifier.
+         * - `relayerPublicKey` is the {@link SolanaAddress} of the randomly selected relayer used for this deposit.
+         * - `claimableBalance` is the {@link Amount} that can be claimed after deducting relayer fees and commission fees.
          * - `value` is either a transaction signature, a forwarded result of type `T`, or a prepared/signed
          *   {@link VersionedTransaction}.
          *
@@ -1483,67 +1509,67 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'connection' }
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'connection' }
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'forwarder' }
-        ): Promise<[U256, T]>;
+        ): Promise<[U256, SolanaAddress, Amount, T]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'forwarder' }
-        ): Promise<[U256, T]>;
+        ): Promise<[U256, SolanaAddress, Amount, T]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'signed' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'signed' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'prepared' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'prepared' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'raw' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'raw' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -1551,7 +1577,9 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         | U256
                         | { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' },
                 maybeOpts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
-        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]> {
+        ): Promise<
+                [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
+        > {
                 const mode = ((typeof indexOrOpts === 'bigint' ? maybeOpts : indexOrOpts)?.mode ??
                         'forwarder') as 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw';
 
@@ -1627,6 +1655,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const commissionFees =
                         (amountAfterRelayerFees * feesConfiguration.commissionFees) / 10000n;
                 const amountAfterCommissionFees = amountAfterRelayerFees - commissionFees;
+                const claimableBalance = amountAfterCommissionFees as Amount;
 
                 const innerCommitment = PoseidonHasher.hash([
                         randomSecret,
@@ -1638,9 +1667,17 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 ]);
 
                 const time = Math.floor(Date.now() / 1000);
+                // Break the 'time' (unix timestamp in seconds) into year, month, day, hour, minute, second
+                const dateObj = new Date(time * 1000);
+                const year = dateObj.getUTCFullYear();
+                const month = dateObj.getUTCMonth() + 1; // Months are zero-based
+                const day = dateObj.getUTCDate();
+                const hour = dateObj.getUTCHours();
+                const minute = dateObj.getUTCMinutes();
+                const second = dateObj.getUTCSeconds();
 
-                const linkerHash = this.umbraWallet.generateLinkerHashForDepositsIntoMixerPool(
-                        'deposit_into_mixer_pool_sol',
+                const linkerHash = this.umbraWallet.generateLinkerHash(
+                        'create_spl_deposit_with_public_amount',
                         BigInt(time) as Time,
                         destinationAddress
                 );
@@ -1659,19 +1696,19 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 randomSecret,
                                 nullifier,
                                 amountAfterCommissionFees as Amount,
-                                BigInt(time) as Year,
-                                BigInt(time) as Month,
-                                BigInt(time) as Day,
-                                BigInt(time) as Hour,
-                                BigInt(time) as Minute,
-                                BigInt(time) as Second,
+                                BigInt(year) as Year,
+                                BigInt(month) as Month,
+                                BigInt(day) as Day,
+                                BigInt(hour) as Hour,
+                                BigInt(minute) as Minute,
+                                BigInt(second) as Second,
                                 amountAfterCommissionFees as Amount,
-                                BigInt(time) as Year,
-                                BigInt(time) as Month,
-                                BigInt(time) as Day,
-                                BigInt(time) as Hour,
-                                BigInt(time) as Minute,
-                                BigInt(time) as Second,
+                                BigInt(year) as Year,
+                                BigInt(month) as Month,
+                                BigInt(day) as Day,
+                                BigInt(hour) as Hour,
+                                BigInt(minute) as Minute,
+                                BigInt(second) as Second,
                                 linkerHash,
                                 innerCommitment,
                                 onChainMvkHash
@@ -1704,7 +1741,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 instructions,
                         }).compileToV0Message();
 
-                        return [index, new VersionedTransaction(rawMessage)];
+                        return [
+                                index,
+                                relayerPublicKey,
+                                claimableBalance,
+                                new VersionedTransaction(rawMessage),
+                        ];
                 }
 
                 const { blockhash } = await this.connectionBasedForwarder
@@ -1720,14 +1762,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
                 if (mode === 'prepared') {
-                        return [index, preparedTransaction];
+                        return [index, relayerPublicKey, claimableBalance, preparedTransaction];
                 }
 
                 const signedTransaction =
                         await this.umbraWallet.signTransaction(preparedTransaction);
 
                 if (mode === 'signed') {
-                        return [index, signedTransaction];
+                        return [index, relayerPublicKey, claimableBalance, signedTransaction];
                 }
 
                 if (mode === 'forwarder') {
@@ -1738,6 +1780,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         }
                         return [
                                 index,
+                                relayerPublicKey,
+                                claimableBalance,
                                 await this.txForwarder.forwardTransaction(signedTransaction),
                         ];
                 }
@@ -1745,6 +1789,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 // 'connection' mode: send via connectionBasedForwarder.
                 return [
                         index,
+                        relayerPublicKey,
+                        claimableBalance,
                         await this.connectionBasedForwarder.forwardTransaction(signedTransaction),
                 ];
         }
@@ -1758,8 +1804,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @param mintAddress - The SPL token mint address being deposited.
          * @param indexOrOpts - Optional fixed index (`U256`) or options object controlling transaction mode.
          * @param maybeOpts - Optional options object when a fixed index is provided.
-         * @returns Depending on the `mode`, either a transaction signature, a forwarded result of type `T`,
-         *          or a prepared/signed {@link VersionedTransaction}.
+         * @returns Depending on the `mode`, a tuple `[index, relayerPublicKey, claimableBalance, value]` where:
+         * - `index` is the {@link U256} nullifier index used to derive the random secret and nullifier.
+         * - `relayerPublicKey` is the {@link SolanaAddress} of the randomly selected relayer used for this deposit.
+         * - `claimableBalance` is the {@link Amount} that can be claimed after deducting commission fees (relayer fees
+         *   are paid separately from WSOL for SPL deposits).
+         * - `value` is either a transaction signature, a forwarded result of type `T`, or a prepared/signed
+         *   {@link VersionedTransaction}.
          *
          * @remarks
          * This method mirrors {@link depositPublicallyIntoMixerPoolSol} but operates on SPL tokens.
@@ -1812,78 +1863,78 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'connection' }
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'connection' }
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'forwarder' }
-        ): Promise<[U256, T]>;
+        ): Promise<[U256, SolanaAddress, Amount, T]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'forwarder' }
-        ): Promise<[U256, T]>;
+        ): Promise<[U256, SolanaAddress, Amount, T]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'signed' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'signed' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'prepared' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'prepared' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'raw' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'raw' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -1892,7 +1943,9 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         | U256
                         | { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' },
                 maybeOpts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
-        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]> {
+        ): Promise<
+                [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
+        > {
                 const mode = ((typeof indexOrOpts === 'bigint' ? maybeOpts : indexOrOpts)?.mode ??
                         'forwarder') as 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw';
 
@@ -1969,6 +2022,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const commissionFees =
                         (amountAfterRelayerFees * feesConfiguration.commissionFees) / 10000n;
                 const amountAfterCommissionFees = amountAfterRelayerFees - commissionFees;
+                const claimableBalance = amountAfterCommissionFees as Amount;
 
                 const innerCommitment = PoseidonHasher.hash([
                         randomSecret,
@@ -1980,9 +2034,17 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 ]);
 
                 const time = Math.floor(Date.now() / 1000);
+                // Break the 'time' (unix timestamp in seconds) into year, month, day, hour, minute, second
+                const dateObj = new Date(time * 1000);
+                const year = dateObj.getUTCFullYear();
+                const month = dateObj.getUTCMonth() + 1; // Months are zero-based
+                const day = dateObj.getUTCDate();
+                const hour = dateObj.getUTCHours();
+                const minute = dateObj.getUTCMinutes();
+                const second = dateObj.getUTCSeconds();
 
-                const linkerHash = this.umbraWallet.generateLinkerHashForDepositsIntoMixerPool(
-                        'deposit_into_mixer_pool_spl',
+                const linkerHash = this.umbraWallet.generateLinkerHash(
+                        'create_spl_deposit_with_public_amount',
                         BigInt(time) as Time,
                         destinationAddress
                 );
@@ -2001,19 +2063,19 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 randomSecret,
                                 nullifier,
                                 amountAfterCommissionFees as Amount,
-                                BigInt(time) as Year,
-                                BigInt(time) as Month,
-                                BigInt(time) as Day,
-                                BigInt(time) as Hour,
-                                BigInt(time) as Minute,
-                                BigInt(time) as Second,
+                                BigInt(year) as Year,
+                                BigInt(month) as Month,
+                                BigInt(day) as Day,
+                                BigInt(hour) as Hour,
+                                BigInt(minute) as Minute,
+                                BigInt(second) as Second,
                                 amountAfterCommissionFees as Amount,
-                                BigInt(time) as Year,
-                                BigInt(time) as Month,
-                                BigInt(time) as Day,
-                                BigInt(time) as Hour,
-                                BigInt(time) as Minute,
-                                BigInt(time) as Second,
+                                BigInt(year) as Year,
+                                BigInt(month) as Month,
+                                BigInt(day) as Day,
+                                BigInt(hour) as Hour,
+                                BigInt(minute) as Minute,
+                                BigInt(second) as Second,
                                 linkerHash,
                                 innerCommitment,
                                 onChainMvkHash
@@ -2046,7 +2108,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 instructions,
                         }).compileToV0Message();
 
-                        return [index, new VersionedTransaction(rawMessage)];
+                        return [
+                                index,
+                                relayerPublicKey,
+                                claimableBalance,
+                                new VersionedTransaction(rawMessage),
+                        ];
                 }
 
                 const { blockhash } = await this.connectionBasedForwarder
@@ -2062,14 +2129,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
                 if (mode === 'prepared') {
-                        return [index, preparedTransaction];
+                        return [index, relayerPublicKey, claimableBalance, preparedTransaction];
                 }
 
                 const signedTransaction =
                         await this.umbraWallet.signTransaction(preparedTransaction);
 
                 if (mode === 'signed') {
-                        return [index, signedTransaction];
+                        return [index, relayerPublicKey, claimableBalance, signedTransaction];
                 }
 
                 if (mode === 'forwarder') {
@@ -2080,6 +2147,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         }
                         return [
                                 index,
+                                relayerPublicKey,
+                                claimableBalance,
                                 await this.txForwarder.forwardTransaction(signedTransaction),
                         ];
                 }
@@ -2087,6 +2156,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 // 'connection' mode: send via connectionBasedForwarder.
                 return [
                         index,
+                        relayerPublicKey,
+                        claimableBalance,
                         await this.connectionBasedForwarder.forwardTransaction(signedTransaction),
                 ];
         }
@@ -2115,71 +2186,75 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress
-        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]>;
+        ): Promise<
+                [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
+        >;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256
-        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]>;
+        ): Promise<
+                [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
+        >;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'connection' }
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'connection' }
-        ): Promise<[U256, SolanaTransactionSignature]>;
+        ): Promise<[U256, SolanaAddress, Amount, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'forwarder' }
-        ): Promise<[U256, T]>;
+        ): Promise<[U256, SolanaAddress, Amount, T]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'forwarder' }
-        ): Promise<[U256, T]>;
+        ): Promise<[U256, SolanaAddress, Amount, T]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'signed' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'signed' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'prepared' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'prepared' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'raw' }
-        ): Promise<[U256, VersionedTransaction]>;
+        ): Promise<[U256, SolanaAddress, Amount, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -2188,7 +2263,9 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         | U256
                         | { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' },
                 maybeOpts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
-        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]> {
+        ): Promise<
+                [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
+        > {
                 const optsParam = (typeof indexOrOpts === 'bigint' ? maybeOpts : indexOrOpts) ?? {
                         mode: 'forwarder',
                 };
@@ -2972,5 +3049,884 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         await this.umbraWallet.signTransaction(versionedTransaction);
 
                 return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Helper function to get the default status byte array for an initialized user account.
+         *
+         * @remarks
+         * After initialization, a user account has the following flags set:
+         * - IS_INITIALISED (bit 0) = true
+         * - IS_MXE_ENCRYPTED (bit 1) = true
+         * - IS_ACTIVE (bit 3) = true
+         *
+         * @returns A status byte array with the default flags set
+         */
+        private static getDefaultInitializedUserAccountStatus(): Uint8Array {
+                const status = new Uint8Array(1);
+                // Set bit 0 (IS_INITIALISED)
+                status[0]! |= 1 << 0;
+                // Set bit 1 (IS_MXE_ENCRYPTED)
+                status[0]! |= 1 << 1;
+                // Set bit 3 (IS_ACTIVE)
+                status[0]! |= 1 << 3;
+                return status;
+        }
+
+        /**
+         * Helper function to get the default status byte array for an initialized token account.
+         *
+         * @remarks
+         * After initialization, a token account has the following flags set:
+         * - IS_INITIALISED (bit 0) = true
+         * - IS_ACTIVE (bit 1) = true
+         * - IS_ARCIUM_BALANCE_INITIALISED (bit 2) = false (not set)
+         * - IS_MXE_ENCRYPTED (bit 3) = true
+         *
+         * @returns A status byte array with the default flags set
+         */
+        private static getDefaultInitializedTokenAccountStatus(): Uint8Array {
+                const status = new Uint8Array(1);
+                // Set bit 0 (IS_INITIALISED)
+                status[0]! |= 1 << 0;
+                // Set bit 1 (IS_ACTIVE)
+                status[0]! |= 1 << 1;
+                // Set bit 3 (IS_MXE_ENCRYPTED)
+                status[0]! |= 1 << 3;
+                // Note: bit 2 (IS_ARCIUM_BALANCE_INITIALISED) is NOT set (false)
+                return status;
+        }
+
+        /**
+         * Claims a deposit confidentially from the mixer pool by generating a zero-knowledge proof
+         * and executing the claim transaction through a relayer.
+         *
+         * @remarks
+         * This method enables users to claim deposits from the mixer pool while maintaining privacy.
+         * The claim process involves:
+         * 1. Fetching and validating Arcium encrypted user and token accounts
+         * 2. Generating cryptographic values (random secret, nullifier, linker hash)
+         * 3. Creating encrypted commitments and zero-knowledge proofs
+         * 4. Building appropriate deposit instructions based on account state
+         * 5. Forwarding the transaction through a relayer
+         *
+         * **Account Initialization:**
+         * If the user account or token account doesn't exist (null), initialization instructions
+         * are automatically added to the transaction. After initialization:
+         * - **User Account**: Initialized, MXE encrypted, and active
+         * - **Token Account**: Initialized, active, Arcium balance uninitialized, and MXE encrypted
+         *
+         * **Deposit Instruction Selection:**
+         * The method selects the appropriate deposit instruction based on account state:
+         * - If token account's Arcium balance is initialized:
+         *   - MXE encrypted → `buildExistingTokenDepositMxeInstruction`
+         *   - Shared → `buildExistingTokenDepositSharedInstruction`
+         * - If token account's Arcium balance is not initialized:
+         *   - User account MXE encrypted → `buildNewTokenDepositMxeInstruction`
+         *   - User account shared → `buildNewTokenDepositSharedInstruction`
+         *
+         * **Privacy Features:**
+         * - Zero-knowledge proofs verify claim validity without revealing details
+         * - Nullifier hash prevents double-spending
+         * - Encrypted commitments maintain privacy
+         * - Merkle tree proofs verify deposit inclusion
+         *
+         * **Requirements:**
+         * - An Umbra wallet must be set on the client via {@link setUmbraWallet}
+         * - A zero-knowledge prover must be set via {@link setZkProver}
+         * - The wallet must have a valid master viewing key
+         * - The commitment must exist in the mixer pool at the specified index
+         *
+         * @param mintAddress - The mint address of the token being claimed
+         * @param destinationAddress - The destination address where the claimed tokens will be deposited
+         * @param commitmentInsertionIndex - The index in the Merkle tree where the commitment was inserted
+         * @param relayerPublicKey - The public key of the relayer that will process and pay for the transaction
+         * @param generationIndex - The generation index used to derive cryptographic values (random secret, nullifier)
+         * @param time - The timestamp when the original deposit was made (used for linker hash generation)
+         * @param claimableBalance - The amount that can be claimed (after fees are deducted)
+         * @param optionalData - Optional SHA3 hash for additional data
+         *
+         * @returns A promise resolving to the transaction signature of the forwarded transaction
+         *
+         * @throws {@link UmbraClientError} When:
+         * - No Umbra wallet is set on the client
+         * - No zero-knowledge prover is set on the client
+         * - The wallet's master viewing key is unavailable
+         * - Account fetching fails
+         * - Account decoding fails
+         * - An existing account is not active (user or token account)
+         * - Cryptographic value generation fails (random secret, nullifier, linker hash)
+         * - Zero-knowledge proof generation fails or returns invalid results
+         * - Ephemeral X25519 key pair generation fails
+         * - Rescue cipher encryption fails
+         * - Instruction building fails
+         * - Transaction building or forwarding fails
+         *
+         * @example
+         * ```typescript
+         * const client = UmbraClient.create('https://api.mainnet-beta.solana.com');
+         * await client.setUmbraWallet(signer);
+         * await client.setZkProver(zkProver);
+         *
+         * const signature = await client.claimDepositConfidentiallyFromMixerPool(
+         *   usdcMintAddress,
+         *   destinationAddress,
+         *   42n, // commitmentInsertionIndex
+         *   relayerPublicKey,
+         *   0n, // generationIndex
+         *   1704067200n, // time (Unix timestamp)
+         *   1000000n, // claimableBalance (1 USDC with 6 decimals)
+         *   optionalDataHash
+         * );
+         * ```
+         */
+        public async claimDepositConfidentiallyFromMixerPool(
+                mintAddress: MintAddress,
+                destinationAddress: SolanaAddress,
+                commitmentInsertionIndex: U64,
+                relayerPublicKey: SolanaAddress,
+                generationIndex: U256,
+                time: Time,
+                claimableBalance: Amount,
+                optionalData: Sha3Hash
+        ): Promise<SolanaTransactionSignature> {
+                // Validate prerequisites
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Cannot claim deposit: Umbra wallet is not set. Call setUmbraWallet() first.'
+                        );
+                }
+
+                if (!this.zkProver) {
+                        throw new UmbraClientError(
+                                'Cannot claim deposit: Zero-knowledge prover is not set. Call setZkProver() first.'
+                        );
+                }
+
+                const masterViewingKey = this.umbraWallet.masterViewingKey;
+                if (!masterViewingKey) {
+                        throw new UmbraClientError(
+                                'Cannot claim deposit: master viewing key is not available. The wallet may not be properly initialized.'
+                        );
+                }
+
+                try {
+                        // Derive PDAs for encrypted accounts
+                        const umbraEncryptedUserAccountPda = getArciumEncryptedTokenAccountPda(
+                                destinationAddress,
+                                mintAddress
+                        );
+                        const umbraEncryptedTokenAccountPda = getArciumEncryptedTokenAccountPda(
+                                destinationAddress,
+                                mintAddress
+                        );
+
+                        // Fetch account data
+                        const [
+                                umbraEncryptedUserAccountRawData,
+                                umbraEncryptedTokenAccountRawData,
+                        ] = await this.connectionBasedForwarder.connection.getMultipleAccountsInfo([
+                                umbraEncryptedUserAccountPda,
+                                umbraEncryptedTokenAccountPda,
+                        ]);
+
+                        // Handle null accounts - decode if exists, otherwise use default status
+                        let umbraEncryptedUserAccountData: Awaited<
+                                ReturnType<
+                                        typeof this.program.account.arciumEncryptedUserAccount.fetch
+                                >
+                        >;
+                        let umbraEncryptedUserAccountStatusByte: number;
+
+                        if (umbraEncryptedUserAccountRawData) {
+                                try {
+                                        umbraEncryptedUserAccountData =
+                                                this.program.coder.accounts.decode(
+                                                        'ArciumEncryptedUserAccount',
+                                                        umbraEncryptedUserAccountRawData.data
+                                                );
+                                        umbraEncryptedUserAccountStatusByte =
+                                                umbraEncryptedUserAccountData.status[0] ?? 0;
+                                } catch (error) {
+                                        throw new UmbraClientError(
+                                                `Failed to decode user account data: ${error instanceof Error ? error.message : String(error)}`
+                                        );
+                                }
+                        } else {
+                                // Account doesn't exist - use default status for initialized account
+                                umbraEncryptedUserAccountStatusByte =
+                                        UmbraClient.getDefaultInitializedUserAccountStatus()[0] ??
+                                        0;
+                        }
+
+                        let umbraEncryptedTokenAccountData: Awaited<
+                                ReturnType<
+                                        typeof this.program.account.arciumEncryptedTokenAccount.fetch
+                                >
+                        >;
+                        let umbraEncryptedTokenAccountStatusByte: number;
+
+                        if (umbraEncryptedTokenAccountRawData) {
+                                try {
+                                        umbraEncryptedTokenAccountData =
+                                                this.program.coder.accounts.decode(
+                                                        'ArciumEncryptedTokenAccount',
+                                                        umbraEncryptedTokenAccountRawData.data
+                                                );
+                                        umbraEncryptedTokenAccountStatusByte =
+                                                umbraEncryptedTokenAccountData.status[0] ?? 0;
+                                } catch (error) {
+                                        throw new UmbraClientError(
+                                                `Failed to decode token account data: ${error instanceof Error ? error.message : String(error)}`
+                                        );
+                                }
+                        } else {
+                                // Account doesn't exist - use default status for initialized account
+                                umbraEncryptedTokenAccountStatusByte =
+                                        UmbraClient.getDefaultInitializedTokenAccountStatus()[0] ??
+                                        0;
+                        }
+
+                        const ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED = 0;
+                        const ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED = 1;
+                        const ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE = 3;
+
+                        const ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED = 0;
+                        const ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE = 1;
+                        const ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ARCIUM_BALANCE_INITIALISED = 2;
+                        const ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED = 3;
+
+                        const instructions = [];
+
+                        // Generate cryptographic values
+                        const randomSecret = this.umbraWallet.generateRandomSecret(generationIndex);
+                        if (!randomSecret) {
+                                throw new UmbraClientError(
+                                        'Failed to generate random secret. The wallet may not be properly initialized.'
+                                );
+                        }
+
+                        const nullifier = this.umbraWallet.generateNullifier(generationIndex);
+                        if (!nullifier) {
+                                throw new UmbraClientError(
+                                        'Failed to generate nullifier. The wallet may not be properly initialized.'
+                                );
+                        }
+
+                        const nullifierHash = PoseidonHasher.hash([nullifier]);
+
+                        // Get Merkle tree path
+                        const [merkleSiblingPathElements, merkleSiblingPathIndices, merkleRoot] =
+                                UmbraClient.getMerkleSiblingPathElements(commitmentInsertionIndex);
+
+                        // Break addresses into low/high parts
+                        const [destinationAddressLow, destinationAddressHigh] =
+                                breakPublicKeyIntoTwoParts(destinationAddress);
+
+                        const [mintPublicKeyLow, mintPublicKeyHigh] = breakPublicKeyIntoTwoParts(
+                                mintAddress as unknown as SolanaAddress
+                        );
+
+                        const [relayerPublicKeyLow, relayerPublicKeyHigh] =
+                                breakPublicKeyIntoTwoParts(
+                                        relayerPublicKey as unknown as SolanaAddress
+                                );
+
+                        // Parse time components
+                        const dateObj = new Date(Number(time) * 1000);
+                        const year = dateObj.getUTCFullYear();
+                        const month = dateObj.getUTCMonth() + 1; // Months are zero-based
+                        const day = dateObj.getUTCDate();
+                        const hour = dateObj.getUTCHours();
+                        const minute = dateObj.getUTCMinutes();
+                        const second = dateObj.getUTCSeconds();
+
+                        // Generate blinding factor
+                        const randomBlindingFactor = generateRandomBlindingFactor();
+
+                        // Get fees configuration
+                        const feesConfiguration =
+                                await UmbraClient.getFeesConfigurationForClaimDepositConfidentiallyFromMixerPool(
+                                        mintAddress,
+                                        claimableBalance
+                                );
+
+                        // Generate linker hash
+                        const linkerHash = this.umbraWallet.generateLinkerHash(
+                                'claim_spl_deposit_with_hidden_amount',
+                                BigInt(time) as Time,
+                                destinationAddress as SolanaAddress
+                        );
+                        if (!linkerHash) {
+                                throw new UmbraClientError(
+                                        'Failed to generate linker hash. The wallet may not be properly initialized.'
+                                );
+                        }
+
+                        // Generate SHA3 commitment
+                        const sha3commitment = sha3_256(
+                                Uint8Array.from([
+                                        convertU128ToBeBytes(claimableBalance),
+                                        convertU128ToBeBytes(destinationAddressLow),
+                                        convertU128ToBeBytes(destinationAddressHigh),
+                                        convertU128ToBeBytes(randomBlindingFactor),
+                                ]).reverse()
+                        ) as U256BeBytes;
+
+                        // Generate ephemeral X25519 key pair
+                        const { x25519PrivateKey, x25519PublicKey } =
+                                this.generateEphemeralArciumX25519PublicKey(generationIndex);
+
+                        // Create Rescue cipher and encrypt values
+                        const rescueCipher = RescueCipher.fromX25519Pair(
+                                x25519PrivateKey,
+                                MXE_ARCIUM_X25519_PUBLIC_KEY
+                        );
+                        const [ciphertexts, nonce] = await rescueCipher.encrypt([
+                                claimableBalance,
+                                destinationAddressLow,
+                                destinationAddressHigh,
+                        ]);
+
+                        if (!ciphertexts || ciphertexts.length < 4) {
+                                throw new UmbraClientError(
+                                        'Failed to encrypt values: insufficient ciphertexts returned'
+                                );
+                        }
+
+                        // Generate zero-knowledge proof
+                        const proofResult =
+                                await this.zkProver.generateClaimSplDepositWithHiddenAmountProof(
+                                        randomSecret,
+                                        nullifier,
+                                        masterViewingKey,
+                                        merkleSiblingPathElements,
+                                        merkleSiblingPathIndices,
+                                        1,
+                                        commitmentInsertionIndex as unknown as U128,
+                                        destinationAddressLow,
+                                        destinationAddressHigh,
+                                        destinationAddressLow,
+                                        destinationAddressHigh,
+                                        1,
+                                        claimableBalance,
+                                        BigInt(year) as Year,
+                                        BigInt(month) as Month,
+                                        BigInt(day) as Day,
+                                        BigInt(hour) as Hour,
+                                        BigInt(minute) as Minute,
+                                        BigInt(second) as Second,
+                                        mintPublicKeyLow,
+                                        mintPublicKeyHigh,
+                                        randomBlindingFactor,
+                                        feesConfiguration.commissionFeesLowerBound,
+                                        feesConfiguration.commissionFeesUpperBound,
+                                        relayerPublicKeyLow,
+                                        relayerPublicKeyHigh,
+                                        1,
+                                        destinationAddressLow,
+                                        destinationAddressHigh,
+                                        1,
+                                        merkleRoot,
+                                        linkerHash,
+                                        nullifierHash,
+                                        aggregateSha3HashIntoSinglePoseidonRoot(
+                                                Uint8Array.from(
+                                                        sha3commitment
+                                                ).reverse() as Sha3Hash
+                                        ),
+                                        feesConfiguration.commissionFeesLowerBound,
+                                        feesConfiguration.commissionFeesUpperBound,
+                                        mintPublicKeyLow,
+                                        mintPublicKeyHigh,
+                                        relayerPublicKeyLow,
+                                        relayerPublicKeyHigh
+                                );
+
+                        if (!proofResult) {
+                                throw new UmbraClientError(
+                                        'Failed to generate zero-knowledge proof: prover returned null or undefined'
+                                );
+                        }
+
+                        const [proofA, proofB, proofC] = proofResult;
+
+                        if (!proofA || !proofB || !proofC) {
+                                throw new UmbraClientError(
+                                        'Failed to generate zero-knowledge proof: invalid proof components returned'
+                                );
+                        }
+
+                        // Handle user account initialization
+                        const isUserAccountInitialized = isBitSet(
+                                umbraEncryptedUserAccountStatusByte,
+                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED
+                        );
+
+                        if (!isUserAccountInitialized) {
+                                // Account doesn't exist - add initialization instruction
+                                instructions.push(
+                                        await buildInitialiseArciumEncryptedUserAccountInstruction(
+                                                {
+                                                        destinationAddress: destinationAddress,
+                                                        signer: relayerPublicKey,
+                                                },
+                                                {
+                                                        optionalData,
+                                                }
+                                        )
+                                );
+                                // After initialization, assume default status
+                                umbraEncryptedUserAccountStatusByte =
+                                        UmbraClient.getDefaultInitializedUserAccountStatus()[0] ??
+                                        0;
+                        } else {
+                                // Account exists - check if active
+                                if (
+                                        !isBitSet(
+                                                umbraEncryptedUserAccountStatusByte,
+                                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE
+                                        )
+                                ) {
+                                        throw new UmbraClientError('User account is not active');
+                                }
+                        }
+
+                        // Handle token account initialization
+                        const isTokenAccountInitialized = isBitSet(
+                                umbraEncryptedTokenAccountStatusByte,
+                                ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED
+                        );
+
+                        if (!isTokenAccountInitialized) {
+                                // Account doesn't exist - add initialization instruction
+                                instructions.push(
+                                        await buildInitialiseArciumEncryptedTokenAccountInstruction(
+                                                {
+                                                        destinationAddress: destinationAddress,
+                                                        signer: relayerPublicKey,
+                                                        mint: mintAddress,
+                                                },
+                                                {
+                                                        optionalData,
+                                                }
+                                        )
+                                );
+                                // After initialization, assume default status
+                                umbraEncryptedTokenAccountStatusByte =
+                                        UmbraClient.getDefaultInitializedTokenAccountStatus()[0] ??
+                                        0;
+                        } else {
+                                // Account exists - check if active
+                                if (
+                                        !isBitSet(
+                                                umbraEncryptedTokenAccountStatusByte,
+                                                ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE
+                                        )
+                                ) {
+                                        throw new UmbraClientError('Token account is not active');
+                                }
+                        }
+
+                        // Select appropriate deposit instruction based on account state
+                        const isArciumBalanceInitialized = isBitSet(
+                                umbraEncryptedTokenAccountStatusByte,
+                                ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ARCIUM_BALANCE_INITIALISED
+                        );
+
+                        if (isArciumBalanceInitialized) {
+                                // Existing deposit - balance already initialized
+                                const isTokenAccountMxeEncrypted = isBitSet(
+                                        umbraEncryptedTokenAccountStatusByte,
+                                        ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED
+                                );
+
+                                if (!isTokenAccountMxeEncrypted) {
+                                        instructions.push(
+                                                await buildExistingTokenDepositSharedInstruction(
+                                                        {
+                                                                relayer: relayerPublicKey,
+                                                                destinationAddress:
+                                                                        destinationAddress,
+                                                                mint: mintAddress,
+                                                        },
+                                                        {
+                                                                expectedNullifierHash:
+                                                                        nullifierHash,
+                                                                ephemeralArcisPublicKey:
+                                                                        x25519PublicKey,
+                                                                nonce,
+                                                                depositAmountCiphertext:
+                                                                        ciphertexts[0]!,
+                                                                depositorAddressPart1Ciphertext:
+                                                                        ciphertexts[1]!,
+                                                                depositorAddressPart2Ciphertext:
+                                                                        ciphertexts[2]!,
+                                                                blindingFactor: ciphertexts[3]!,
+                                                                commitment: Uint8Array.from(
+                                                                        sha3commitment
+                                                                ).reverse() as U256LeBytes,
+                                                                groth16ProofA: proofA,
+                                                                groth16ProofB: proofB,
+                                                                groth16ProofC: proofC,
+                                                                expectedMerkleRoot: merkleRoot,
+                                                                expectedLinkerAddressHash:
+                                                                        linkerHash,
+                                                                optionalData,
+                                                        }
+                                                )
+                                        );
+                                } else {
+                                        instructions.push(
+                                                await buildExistingTokenDepositMxeInstruction(
+                                                        {
+                                                                relayer: relayerPublicKey,
+                                                                destinationAddress:
+                                                                        destinationAddress,
+                                                                mint: mintAddress,
+                                                        },
+                                                        {
+                                                                expectedNullifierHash:
+                                                                        nullifierHash,
+                                                                ephemeralArcisPublicKey:
+                                                                        x25519PublicKey,
+                                                                nonce,
+                                                                depositAmountCiphertext:
+                                                                        ciphertexts[0]!,
+                                                                depositorAddressPart1Ciphertext:
+                                                                        ciphertexts[1]!,
+                                                                depositorAddressPart2Ciphertext:
+                                                                        ciphertexts[2]!,
+                                                                blindingFactor: ciphertexts[3]!,
+                                                                commitment: Uint8Array.from(
+                                                                        sha3commitment
+                                                                ).reverse() as U256LeBytes,
+                                                                groth16ProofA: proofA,
+                                                                groth16ProofB: proofB,
+                                                                groth16ProofC: proofC,
+                                                                expectedMerkleRoot: merkleRoot,
+                                                                expectedLinkerAddressHash:
+                                                                        linkerHash,
+                                                                optionalData,
+                                                        }
+                                                )
+                                        );
+                                }
+                        } else {
+                                // New deposit - balance not initialized
+                                const isUserAccountMxeEncrypted = isBitSet(
+                                        umbraEncryptedUserAccountStatusByte,
+                                        ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED
+                                );
+
+                                if (!isUserAccountMxeEncrypted) {
+                                        instructions.push(
+                                                await buildNewTokenDepositSharedInstruction(
+                                                        {
+                                                                relayer: relayerPublicKey,
+                                                                destinationAddress:
+                                                                        destinationAddress,
+                                                                mint: mintAddress,
+                                                        },
+                                                        {
+                                                                expectedNullifierHash:
+                                                                        nullifierHash,
+                                                                ephemeralArcisPublicKey:
+                                                                        x25519PublicKey,
+                                                                nonce,
+                                                                depositAmountCiphertext:
+                                                                        ciphertexts[0]!,
+                                                                depositorAddressPart1Ciphertext:
+                                                                        ciphertexts[1]!,
+                                                                depositorAddressPart2Ciphertext:
+                                                                        ciphertexts[2]!,
+                                                                blindingFactor: ciphertexts[3]!,
+                                                                commitment: Uint8Array.from(
+                                                                        sha3commitment
+                                                                ).reverse() as U256LeBytes,
+                                                                groth16ProofA: proofA,
+                                                                groth16ProofB: proofB,
+                                                                groth16ProofC: proofC,
+                                                                expectedMerkleRoot: merkleRoot,
+                                                                expectedLinkerAddressHash:
+                                                                        linkerHash,
+                                                                optionalData,
+                                                        }
+                                                )
+                                        );
+                                } else {
+                                        instructions.push(
+                                                await buildNewTokenDepositMxeInstruction(
+                                                        {
+                                                                relayer: relayerPublicKey,
+                                                                destinationAddress:
+                                                                        destinationAddress,
+                                                                mint: mintAddress,
+                                                        },
+                                                        {
+                                                                expectedNullifierHash:
+                                                                        nullifierHash,
+                                                                ephemeralArcisPublicKey:
+                                                                        x25519PublicKey,
+                                                                nonce,
+                                                                depositAmountCiphertext:
+                                                                        ciphertexts[0]!,
+                                                                depositorAddressPart1Ciphertext:
+                                                                        ciphertexts[1]!,
+                                                                depositorAddressPart2Ciphertext:
+                                                                        ciphertexts[2]!,
+                                                                blindingFactor: ciphertexts[3]!,
+                                                                commitment: Uint8Array.from(
+                                                                        sha3commitment
+                                                                ).reverse() as U256LeBytes,
+                                                                groth16ProofA: proofA,
+                                                                groth16ProofB: proofB,
+                                                                groth16ProofC: proofC,
+                                                                expectedMerkleRoot: merkleRoot,
+                                                                expectedLinkerAddressHash:
+                                                                        linkerHash,
+                                                                optionalData,
+                                                        }
+                                                )
+                                        );
+                                }
+                        }
+
+                        // Build and forward transaction
+                        const transactionMessage = new TransactionMessage({
+                                payerKey: relayerPublicKey,
+                                recentBlockhash: (
+                                        await this.connectionBasedForwarder.connection.getLatestBlockhash()
+                                ).blockhash,
+                                instructions,
+                        });
+
+                        const versionedTransaction = new VersionedTransaction(
+                                transactionMessage.compileToV0Message()
+                        );
+
+                        const relayerForwarder = RelayerForwarder.fromPublicKey(relayerPublicKey);
+                        return await relayerForwarder.forwardTransaction(versionedTransaction);
+                } catch (error) {
+                        if (error instanceof UmbraClientError) {
+                                throw error;
+                        }
+                        throw new UmbraClientError(
+                                `Failed to claim deposit confidentially from mixer pool: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                }
+        }
+
+        public static async getFeesConfigurationForClaimDepositConfidentiallyFromMixerPool(
+                _mintAddress: MintAddress,
+                _amount: Amount
+        ): Promise<{
+                commissionFees: BasisPoints;
+                commissionFeesLowerBound: Amount;
+                commissionFeesUpperBound: Amount;
+        }> {
+                throw new UmbraClientError('Not implemented');
+        }
+
+        /**
+         * Generates an ephemeral Solana keypair deterministically from a master viewing key and index.
+         *
+         * @remarks
+         * This method derives a unique ephemeral keypair for each index value using a two-step
+         * KMAC256-based key derivation process:
+         * 1. First, it derives a domain-separated seed from the master viewing key using the
+         *    domain separator "Umbra Privacy - Ephemeral Keypair Seed"
+         * 2. Then, it derives the final ephemeral keypair seed by hashing the index with the
+         *    domain-separated seed
+         *
+         * The resulting keypair is deterministic: the same master viewing key and index will
+         * always produce the same keypair. This enables applications to generate ephemeral
+         * keypairs for privacy-preserving operations without storing them explicitly.
+         *
+         * **Requirements:**
+         * - An Umbra wallet must be set on the client via {@link setUmbraWallet}
+         * - The wallet must have a valid master viewing key
+         *
+         * @param index - A 256-bit unsigned integer used as an index for keypair derivation.
+         *                Different index values will produce different keypairs.
+         *
+         * @returns A Solana `Keypair` instance derived from the master viewing key and index
+         *
+         * @throws {@link UmbraClientError} When:
+         * - No Umbra wallet is set on the client (`umbraWallet` is undefined)
+         * - The wallet's master viewing key is undefined or invalid
+         * - Key derivation fails (e.g., due to cryptographic operation errors)
+         * - Keypair creation fails (e.g., due to invalid seed length or format)
+         *
+         * @example
+         * ```typescript
+         * const client = UmbraClient.create('https://api.mainnet-beta.solana.com');
+         * await client.setUmbraWallet(signer);
+         *
+         * // Generate an ephemeral keypair for index 0
+         * const keypair0 = client.generateEphemeralKeypair(0n);
+         *
+         * // Generate a different ephemeral keypair for index 1
+         * const keypair1 = client.generateEphemeralKeypair(1n);
+         *
+         * // The same index will always produce the same keypair
+         * const keypair0Again = client.generateEphemeralKeypair(0n);
+         * console.log(keypair0.publicKey.equals(keypair0Again.publicKey)); // true
+         * ```
+         */
+        public generateEphemeralKeypair(index: U256): Keypair {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Cannot generate ephemeral keypair: Umbra wallet is not set. Call setUmbraWallet() first.'
+                        );
+                }
+
+                const masterViewingKey = this.umbraWallet.masterViewingKey;
+                if (!masterViewingKey) {
+                        throw new UmbraClientError(
+                                'Cannot generate ephemeral keypair: master viewing key is not available. The wallet may not be properly initialized.'
+                        );
+                }
+
+                try {
+                        const domainSeparatedSeed = kmac256(
+                                new TextEncoder().encode('Umbra Privacy - Ephemeral Keypair Seed'),
+                                convertU128ToLeBytes(masterViewingKey)
+                        ) as U256LeBytes;
+
+                        const ephemeralKeypairSeed = kmac256(
+                                convertU256ToLeBytes(index),
+                                domainSeparatedSeed
+                        ) as U256LeBytes;
+
+                        const ephemeralKeypair = Keypair.fromSecretKey(ephemeralKeypairSeed);
+
+                        return ephemeralKeypair;
+                } catch (error) {
+                        throw new UmbraClientError(
+                                `Failed to generate ephemeral keypair: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                }
+        }
+
+        /**
+         * Generates an ephemeral X25519 key pair deterministically from a master viewing key and index.
+         *
+         * @remarks
+         * This method derives a unique ephemeral X25519 key pair for each index value using a two-step
+         * KMAC256-based key derivation process:
+         * 1. First, it derives a domain-separated seed from the master viewing key using the
+         *    domain separator "Umbra Privacy - Ephemeral Arcium X25519 Public Key Seed"
+         * 2. Then, it derives the final ephemeral X25519 secret key seed by hashing the index with the
+         *    domain-separated seed
+         * 3. The derived seed (first 32 bytes) is used directly as the X25519 private key
+         * 4. The corresponding public key is computed using X25519 scalar multiplication
+         *
+         * The resulting key pair is deterministic: the same master viewing key and index will
+         * always produce the same X25519 key pair. This enables applications to generate ephemeral
+         * X25519 keys for privacy-preserving operations (such as establishing Rescue cipher shared
+         * secrets) without storing them explicitly.
+         *
+         * **Requirements:**
+         * - An Umbra wallet must be set on the client via {@link setUmbraWallet}
+         * - The wallet must have a valid master viewing key
+         *
+         * **Use Cases:**
+         * Ephemeral X25519 key pairs are commonly used for:
+         * - Establishing temporary encrypted communication channels
+         * - Creating one-time Rescue cipher instances for specific operations
+         * - Privacy-preserving key exchange protocols
+         *
+         * @param index - A 256-bit unsigned integer used as an index for key pair derivation.
+         *                Different index values will produce different key pairs.
+         *
+         * @returns An object containing:
+         * - `x25519PrivateKey`: The derived X25519 secret key (32 bytes)
+         * - `x25519PublicKey`: The corresponding X25519 public key (32 bytes)
+         *
+         * @throws {@link UmbraClientError} When:
+         * - No Umbra wallet is set on the client (`umbraWallet` is undefined)
+         * - The wallet's master viewing key is undefined or invalid
+         * - Key derivation fails (e.g., due to cryptographic operation errors)
+         * - X25519 key pair generation fails (e.g., due to invalid key material)
+         *
+         * @example
+         * ```typescript
+         * const client = UmbraClient.create('https://api.mainnet-beta.solana.com');
+         * await client.setUmbraWallet(signer);
+         *
+         * // Generate an ephemeral X25519 key pair for index 0
+         * const { x25519PrivateKey, x25519PublicKey } = client.generateEphemeralArciumX25519PublicKey(0n);
+         *
+         * // Use the public key to establish a Rescue cipher with another party
+         * const cipher = RescueCipher.fromX25519Pair(x25519PrivateKey, otherPartyPublicKey);
+         *
+         * // Generate a different key pair for index 1
+         * const keyPair1 = client.generateEphemeralArciumX25519PublicKey(1n);
+         *
+         * // The same index will always produce the same key pair
+         * const keyPair0Again = client.generateEphemeralArciumX25519PublicKey(0n);
+         * // Compare public keys byte-by-byte
+         * const keysMatch = keyPair0Again.x25519PublicKey.every(
+         *   (byte, i) => byte === x25519PublicKey[i]
+         * );
+         * console.log(keysMatch); // true
+         * ```
+         */
+        public generateEphemeralArciumX25519PublicKey(index: U256): {
+                x25519PrivateKey: ArciumX25519SecretKey;
+                x25519PublicKey: ArciumX25519PublicKey;
+        } {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Cannot generate ephemeral X25519 key pair: Umbra wallet is not set. Call setUmbraWallet() first.'
+                        );
+                }
+
+                const masterViewingKey = this.umbraWallet.masterViewingKey;
+                if (!masterViewingKey) {
+                        throw new UmbraClientError(
+                                'Cannot generate ephemeral X25519 key pair: master viewing key is not available. The wallet may not be properly initialized.'
+                        );
+                }
+
+                try {
+                        const domainSeparateSeed = kmac256(
+                                new TextEncoder().encode(
+                                        'Umbra Privacy - Ephemeral Arcium X25519 Public Key Seed'
+                                ),
+                                convertU128ToLeBytes(masterViewingKey)
+                        );
+
+                        const ephemeralArciumX25519SecretKeySeed = kmac256(
+                                convertU256ToLeBytes(index),
+                                domainSeparateSeed
+                        );
+
+                        // Use the derived seed as the X25519 private key (32 bytes)
+                        // KMAC256 returns 32 bytes, which is the correct size for X25519 private keys
+                        const ephemeralArciumX25519SecretKey = Uint8Array.from(
+                                ephemeralArciumX25519SecretKeySeed.slice(0, 32)
+                        ) as ArciumX25519SecretKey;
+
+                        const ephemeralArciumX25519PublicKey = x25519.getPublicKey(
+                                ephemeralArciumX25519SecretKey
+                        ) as ArciumX25519PublicKey;
+
+                        return {
+                                x25519PrivateKey: ephemeralArciumX25519SecretKey,
+                                x25519PublicKey: ephemeralArciumX25519PublicKey,
+                        };
+                } catch (error) {
+                        throw new UmbraClientError(
+                                `Failed to generate ephemeral X25519 key pair: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                }
+        }
+
+        public static getMerkleSiblingPathElements(
+                _index: U64
+        ): [Array<PoseidonHash>, Array<0 | 1>, PoseidonHash] {
+                throw new UmbraClientError('Not implemented');
         }
 }

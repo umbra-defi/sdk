@@ -435,6 +435,45 @@ export function generateRandomU256(): U256 {
 }
 
 /**
+ * Generates a cryptographically secure random 128-bit blinding factor.
+ *
+ * @returns A random {@link U128} value sampled from 16 bytes of cryptographic randomness.
+ *
+ * @remarks
+ * This function uses `randomBytes(16)` to obtain 16 bytes of entropy and then interprets the
+ * resulting `Uint8Array` as a little-endian 128-bit integer.
+ *
+ * **Blinding Factors:**
+ * Blinding factors are random values used in cryptographic operations to prevent information
+ * leakage and enhance privacy. They are commonly used in:
+ * - Commitments and hash-based constructions
+ * - Zero-knowledge proof systems
+ * - Randomized encodings
+ * - Privacy-preserving protocols
+ *
+ * The generated blinding factor can be used to blind sensitive values (such as viewing keys
+ * or secrets) before they are used in cryptographic operations, ensuring that the same value
+ * produces different outputs each time it's used.
+ *
+ * **Security:**
+ * This function uses cryptographically secure random number generation to ensure the blinding
+ * factor is unpredictable and cannot be guessed or manipulated by attackers.
+ *
+ * @example
+ * ```ts
+ * const blindingFactor: U128 = generateRandomBlindingFactor();
+ * console.log(blindingFactor.toString());
+ *
+ * // Use the blinding factor in a commitment
+ * const commitment = hash(secretValue, blindingFactor);
+ * ```
+ */
+export function generateRandomBlindingFactor(): U128 {
+        const randomBytesArray = randomBytes(16);
+        return convertU128LeBytesToU128(randomBytesArray as U128LeBytes);
+}
+
+/**
  * Splits a Solana public key into two 128-bit limbs.
  *
  * @param publicKey - The {@link SolanaAddress} to split.
