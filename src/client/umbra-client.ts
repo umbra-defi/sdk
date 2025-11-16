@@ -1407,8 +1407,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @param amount - The amount of SOL to deposit into the mixer pool.
          * @param destinationAddress - The Solana address where withdrawn funds should ultimately be sent.
          * @param opts - Optional transaction handling mode (see remarks).
-         * @returns Depending on the `mode`, either a transaction signature, a forwarded result of type `T`,
-         *          or a prepared/signed {@link VersionedTransaction}.
+         * @returns Depending on the `mode`, a tuple `[index, value]` where:
+         * - `index` is the {@link U256} nullifier index used to derive the random secret and nullifier.
+         * - `value` is either a transaction signature, a forwarded result of type `T`, or a prepared/signed
+         *   {@link VersionedTransaction}.
          *
          * @remarks
          * This method:
@@ -1481,67 +1483,67 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'connection' }
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'connection' }
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'forwarder' }
-        ): Promise<T>;
+        ): Promise<[U256, T]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'forwarder' }
-        ): Promise<T>;
+        ): Promise<[U256, T]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'signed' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'signed' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'prepared' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'prepared' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'raw' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts: { mode: 'raw' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -1549,7 +1551,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         | U256
                         | { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' },
                 maybeOpts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction> {
+        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]> {
                 const mode = ((typeof indexOrOpts === 'bigint' ? maybeOpts : indexOrOpts)?.mode ??
                         'forwarder') as 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw';
 
@@ -1702,7 +1704,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 instructions,
                         }).compileToV0Message();
 
-                        return new VersionedTransaction(rawMessage);
+                        return [index, new VersionedTransaction(rawMessage)];
                 }
 
                 const { blockhash } = await this.connectionBasedForwarder
@@ -1718,14 +1720,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
                 if (mode === 'prepared') {
-                        return preparedTransaction;
+                        return [index, preparedTransaction];
                 }
 
                 const signedTransaction =
                         await this.umbraWallet.signTransaction(preparedTransaction);
 
                 if (mode === 'signed') {
-                        return signedTransaction;
+                        return [index, signedTransaction];
                 }
 
                 if (mode === 'forwarder') {
@@ -1734,11 +1736,17 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         'No transaction forwarder configured on UmbraClient'
                                 );
                         }
-                        return await this.txForwarder.forwardTransaction(signedTransaction);
+                        return [
+                                index,
+                                await this.txForwarder.forwardTransaction(signedTransaction),
+                        ];
                 }
 
                 // 'connection' mode: send via connectionBasedForwarder.
-                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+                return [
+                        index,
+                        await this.connectionBasedForwarder.forwardTransaction(signedTransaction),
+                ];
         }
 
         /**
@@ -1804,78 +1812,78 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'connection' }
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'connection' }
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'forwarder' }
-        ): Promise<T>;
+        ): Promise<[U256, T]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'forwarder' }
-        ): Promise<T>;
+        ): Promise<[U256, T]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'signed' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'signed' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'prepared' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'prepared' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'raw' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'raw' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -1884,7 +1892,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         | U256
                         | { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' },
                 maybeOpts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction> {
+        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]> {
                 const mode = ((typeof indexOrOpts === 'bigint' ? maybeOpts : indexOrOpts)?.mode ??
                         'forwarder') as 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw';
 
@@ -2038,7 +2046,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 instructions,
                         }).compileToV0Message();
 
-                        return new VersionedTransaction(rawMessage);
+                        return [index, new VersionedTransaction(rawMessage)];
                 }
 
                 const { blockhash } = await this.connectionBasedForwarder
@@ -2054,14 +2062,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
                 if (mode === 'prepared') {
-                        return preparedTransaction;
+                        return [index, preparedTransaction];
                 }
 
                 const signedTransaction =
                         await this.umbraWallet.signTransaction(preparedTransaction);
 
                 if (mode === 'signed') {
-                        return signedTransaction;
+                        return [index, signedTransaction];
                 }
 
                 if (mode === 'forwarder') {
@@ -2070,11 +2078,17 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         'No transaction forwarder configured on UmbraClient'
                                 );
                         }
-                        return await this.txForwarder.forwardTransaction(signedTransaction);
+                        return [
+                                index,
+                                await this.txForwarder.forwardTransaction(signedTransaction),
+                        ];
                 }
 
                 // 'connection' mode: send via connectionBasedForwarder.
-                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+                return [
+                        index,
+                        await this.connectionBasedForwarder.forwardTransaction(signedTransaction),
+                ];
         }
 
         /**
@@ -2101,71 +2115,71 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'connection' }
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'connection' }
-        ): Promise<SolanaTransactionSignature>;
+        ): Promise<[U256, SolanaTransactionSignature]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'forwarder' }
-        ): Promise<T>;
+        ): Promise<[U256, T]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'forwarder' }
-        ): Promise<T>;
+        ): Promise<[U256, T]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'signed' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'signed' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'prepared' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'prepared' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts: { mode: 'raw' }
-        ): Promise<VersionedTransaction>;
+        ): Promise<[U256, VersionedTransaction]>;
         public async depositPublicallyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -2174,7 +2188,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         | U256
                         | { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' },
                 maybeOpts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction> {
+        ): Promise<[U256, SolanaTransactionSignature | T | VersionedTransaction]> {
                 const optsParam = (typeof indexOrOpts === 'bigint' ? maybeOpts : indexOrOpts) ?? {
                         mode: 'forwarder',
                 };
