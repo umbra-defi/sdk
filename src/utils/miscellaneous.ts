@@ -1,7 +1,20 @@
-import { AccountOffset, InstructionSeed, MintAddress } from '@/types';
+import {
+        AccountOffset,
+        InstructionSeed,
+        MintAddress,
+        SolanaAddress,
+        U128,
+        U128LeBytes,
+        U256,
+        U256LeBytes,
+} from '@/types';
 import { Transaction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { randomBytes } from '@noble/hashes/utils.js';
-import { convertU16LeBytesToU16 } from './convertors';
+import {
+        convertU128LeBytesToU128,
+        convertU16LeBytesToU16,
+        convertU256LeBytesToU256,
+} from './convertors';
 import { U16LeBytes } from '@/types';
 
 /**
@@ -399,4 +412,52 @@ export function generateRandomPublicCommissionFeesAccountOffset(
  */
 export function isBitSet(value: number, bit: number): boolean {
         return (value & (1 << bit)) !== 0;
+}
+
+/**
+ * Generates a uniformly random 256-bit value.
+ *
+ * @returns A random {@link U256} value sampled from 32 bytes of cryptographic randomness.
+ *
+ * @remarks
+ * This function uses `randomBytes(32)` to obtain 32 bytes of entropy and then interprets the
+ * resulting `Uint8Array` as a little-endian 256-bit integer.
+ *
+ * @example
+ * ```ts
+ * const randomValue: U256 = generateRandomU256();
+ * console.log(randomValue.toString());
+ * ```
+ */
+export function generateRandomU256(): U256 {
+        const randomBytesArray = randomBytes(32);
+        return convertU256LeBytesToU256(randomBytesArray as U256LeBytes);
+}
+
+/**
+ * Splits a Solana public key into two 128-bit limbs.
+ *
+ * @param publicKey - The {@link SolanaAddress} to split.
+ * @returns A tuple `[lo, hi]` of {@link U128} values representing the first and second halves
+ *          of the public key bytes, interpreted as little-endian 128-bit integers.
+ *
+ * @remarks
+ * This is useful when a 256-bit public key needs to be represented as two field elements
+ * (e.g. for zero-knowledge circuits or Poseidon hashing) without losing information.
+ *
+ * @example
+ * ```ts
+ * const [lo, hi] = breakPublicKeyIntoTwoParts(userPublicKey);
+ * console.log(lo.toString(), hi.toString());
+ * ```
+ */
+export function breakPublicKeyIntoTwoParts(publicKey: SolanaAddress): [U128, U128] {
+        const publicKeyBytes = publicKey.toBytes();
+        const publicKeyBytesLength = publicKeyBytes.length;
+        const publicKeyBytesFirstHalf = publicKeyBytes.slice(0, publicKeyBytesLength / 2);
+        const publicKeyBytesSecondHalf = publicKeyBytes.slice(publicKeyBytesLength / 2);
+        return [
+                convertU128LeBytesToU128(publicKeyBytesFirstHalf as U128LeBytes),
+                convertU128LeBytesToU128(publicKeyBytesSecondHalf as U128LeBytes),
+        ];
 }

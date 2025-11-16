@@ -175,7 +175,7 @@ export class RelayerForwarder extends ITransactionForwarder<SolanaTransactionSig
         /**
          * The relayer's public key used to construct the endpoint URL.
          */
-        private readonly relayerPublicKey: SolanaAddress;
+        public readonly relayerPublicKey: SolanaAddress;
 
         /**
          * Creates a new instance of RelayerForwarder.

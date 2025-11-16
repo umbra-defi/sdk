@@ -12,17 +12,26 @@ import {
         Year,
         Bytes,
         SolanaSignature,
+        U256,
+        Time,
+        SolanaAddress,
 } from '@/types';
 import { ISigner, SignerError } from '@/client/interface';
 import { RescueCipher } from '@/client/implementation';
 import { DEFAULT_SIGNING_MESSAGE, MXE_ARCIUM_X25519_PUBLIC_KEY } from '@/constants/arcium';
 import { kmac128, kmac256 } from '@noble/hashes/sha3-addons.js';
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
-import { convertU128BeBytesToU128 } from '@/utils/convertors';
+import {
+        convertU128BeBytesToU128,
+        convertU128ToLeBytes,
+        convertU256LeBytesToU256,
+        convertU256ToLeBytes,
+} from '@/utils/convertors';
 // Imported for TSDoc @throws type references - used in JSDoc comments
 // @ts-expect-error - This import is used in JSDoc @throws tags, but TypeScript doesn't recognize JSDoc as usage
 import { PoseidonHasher, PoseidonHasherError } from '@/utils/hasher';
 import { Keypair, VersionedTransaction } from '@solana/web3.js';
+import { breakPublicKeyIntoTwoParts } from '@/utils/miscellaneous';
 
 /**
  * Abstract base class for all Umbra wallet-related errors.
@@ -203,6 +212,30 @@ export class UmbraWallet {
         public readonly masterViewingKeySha3BlindingFactor: U128;
 
         /**
+         * Deterministic random secret generator derived from the wallet's master signature seed.
+         *
+         * @param index - Domain-separated index (as {@link U256}) used to derive an independent secret.
+         * @returns A 128-bit secret value as a {@link U128}.
+         *
+         * @remarks
+         * This function pointer is initialised in the constructor to a KMAC-based derivation that
+         * expands the master signature seed into an arbitrary number of cryptographically independent
+         * secrets. Each `index` produces a distinct secret while remaining deterministic for the same
+         * wallet and index.
+         *
+         * It is typically used as a building block for higher-level blinding factors or protocol-
+         * specific secrets, ensuring that each usage has a unique domain separation via the `index`.
+         *
+         * @example
+         * ```ts
+         * const index: U256 = /* obtain index *\/;
+         * const secret: U128 = wallet.generateRandomSecret(index);
+         * console.log(secret.toString());
+         * ```
+         */
+        public readonly generateRandomSecret: (index: U256) => U128;
+
+        /**
          * Function to get or create a Rescue cipher for a given X25519 public key.
          *
          * @param publicKey - The X25519 public key to create a cipher for
@@ -234,7 +267,8 @@ export class UmbraWallet {
                 getRescueCipherForPublicKey: (publicKey: ArciumX25519PublicKey) => RescueCipher,
                 masterViewingKey: U128,
                 masterViewingKeyPoseidonBlindingFactor: U128,
-                masterViewingKeySha3BlindingFactor: U128
+                masterViewingKeySha3BlindingFactor: U128,
+                generateRandomSecret: (index: U256) => U128
         ) {
                 this.signer = signer;
                 this.arciumX25519PublicKey = arciumX25519PublicKey;
@@ -249,6 +283,7 @@ export class UmbraWallet {
                 this.masterViewingKeyPoseidonBlindingFactor =
                         masterViewingKeyPoseidonBlindingFactor;
                 this.masterViewingKeySha3BlindingFactor = masterViewingKeySha3BlindingFactor;
+                this.generateRandomSecret = generateRandomSecret;
         }
 
         /**
@@ -301,6 +336,21 @@ export class UmbraWallet {
                                         masterSignatureSeed
                                 );
 
+                        const randomSecretMasterSeed = kmac256(
+                                new TextEncoder().encode(
+                                        'Umbra Privacy - Random Secret Master Seed'
+                                ),
+                                masterSignatureSeed
+                        );
+
+                        const generateRandomSecret = (index: U256) => {
+                                const randomSecretBeBytes = kmac128(
+                                        convertU256ToLeBytes(index),
+                                        randomSecretMasterSeed
+                                ) as U128BeBytes;
+                                return convertU128BeBytesToU128(randomSecretBeBytes);
+                        };
+
                         const getRescueCipherForPublicKey = (publicKey: ArciumX25519PublicKey) => {
                                 const rescueCipher = RescueCipher.fromX25519Pair(
                                         x25519PrivateKey,
@@ -315,7 +365,8 @@ export class UmbraWallet {
                                 getRescueCipherForPublicKey,
                                 masterViewingKey,
                                 masterViewingKeyPoseidonBlindingFactor,
-                                masterViewingKeySha3BlindingFactor
+                                masterViewingKeySha3BlindingFactor,
+                                generateRandomSecret
                         );
                 } catch (error) {
                         if (error instanceof SignerError) {
@@ -764,5 +815,110 @@ export class UmbraWallet {
          */
         public addEncryptorForPublicKey(publicKey: ArciumX25519PublicKey): void {
                 this.rescueCiphers.set(publicKey, this.getRescueCipherForPublicKey(publicKey));
+        }
+
+        /**
+         * Derives a deterministic nullifier for a given index using the wallet's master viewing key.
+         *
+         * @param index - The nullifier index (typically a position or counter) encoded as a {@link U256}.
+         * @returns A 128-bit nullifier value as a {@link U128}.
+         *
+         * @remarks
+         * This function uses a two-step KMAC-based derivation:
+         * - First, it derives a *nullifier master seed* from the master viewing key and a fixed
+         *   context string (`"Umbra Privacy - Nullifier Master Seed"`).
+         * - It then derives the final nullifier from the provided `index` and the nullifier master seed.
+         *
+         * The resulting nullifier is deterministic for a given `(masterViewingKey, index)` pair,
+         * while remaining unlinkable across different master viewing keys due to the domain-separated
+         * KMAC construction.
+         *
+         * @example
+         * ```ts
+         * const index: U256 = /* obtain index *\/;
+         * const nullifier: U128 = wallet.generateNullifier(index);
+         * console.log(nullifier.toString());
+         * ```
+         */
+        public generateNullifier(index: U256): U128 {
+                const message = convertU128ToLeBytes(this.masterViewingKey);
+                const nullifierMasterSeed = kmac128(
+                        new TextEncoder().encode('Umbra Privacy - Nullifier Master Seed'),
+                        message
+                ) as U128BeBytes;
+                const nullifierBeBytes = kmac128(
+                        convertU256ToLeBytes(index),
+                        nullifierMasterSeed
+                ) as U128BeBytes;
+                return convertU128BeBytesToU128(nullifierBeBytes);
+        }
+
+        /**
+         * Generates a linker hash binding a deposit into the mixer pool to a specific destination.
+         *
+         * @param purpose - The deposit purpose, distinguishing SOL vs SPL mixer pools.
+         * @param time - The deposit time as a {@link Time} value (seconds since Unix epoch).
+         * @param destinationAddress - The Solana address where funds are intended to be withdrawn.
+         * @returns A {@link PoseidonHash} that links the deposit to the destination address and time.
+         *
+         * @remarks
+         * This function derives an *individual transaction viewing key* by hashing:
+         * - The wallet's master viewing key
+         * - A purpose code derived from `purpose`
+         * - The UTC breakdown of `time` (year, month, day, hour, minute, second)
+         *
+         * It then combines this viewing key with the destination address (split into two 128-bit
+         * limbs) in a second Poseidon hash to produce the final linker hash. This hash can be used
+         * to cryptographically link a deposit into the mixer pool with a particular destination
+         * address and timestamp, while still preserving the anonymity properties of the mixer.
+         *
+         * @example
+         * ```ts
+         * const now: Time = BigInt(Math.floor(Date.now() / 1000)) as Time; // seconds since epoch
+         * const linkerHash = wallet.generateLinkerHashForDepositsIntoMixerPool(
+         *   'deposit_into_mixer_pool_spl',
+         *   now,
+         *   destinationAddress,
+         * );
+         * console.log(linkerHash.toString());
+         * ```
+         */
+        public generateLinkerHashForDepositsIntoMixerPool(
+                purpose: 'deposit_into_mixer_pool_sol' | 'deposit_into_mixer_pool_spl',
+                time: Time,
+                destinationAddress: SolanaAddress
+        ): PoseidonHash {
+                const purposeCode = UmbraWallet.getPurposeCode(purpose);
+
+                // Convert the protocol `Time` value (seconds since epoch) to a JavaScript `Date`.
+                const utcDate = new Date(Number(time) * 1000);
+                const year = BigInt(utcDate.getUTCFullYear());
+                const month = BigInt(utcDate.getUTCMonth() + 1); // getUTCMonth() is 0-indexed
+                const day = BigInt(utcDate.getUTCDate());
+                const hour = BigInt(utcDate.getUTCHours());
+                const minute = BigInt(utcDate.getUTCMinutes());
+                const second = BigInt(utcDate.getUTCSeconds());
+
+                const individualTransactionViewingKey = PoseidonHasher.hash([
+                        this.masterViewingKey,
+                        purposeCode,
+                        year,
+                        month,
+                        day,
+                        hour,
+                        minute,
+                        second,
+                ]);
+
+                const [destinationAddressLo, destinationAddressHi] =
+                        breakPublicKeyIntoTwoParts(destinationAddress);
+
+                const linkerHash = PoseidonHasher.hash([
+                        convertU256LeBytesToU256(individualTransactionViewingKey),
+                        destinationAddressLo,
+                        destinationAddressHi,
+                ]);
+
+                return linkerHash;
         }
 }
