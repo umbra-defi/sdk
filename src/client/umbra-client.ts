@@ -1,6 +1,10 @@
 import { UmbraWallet, UmbraWalletError } from '@/client/umbra-wallet';
 import { ITransactionForwarder, ISigner, IZkProver } from '@/client/interface';
 import {
+        Amount,
+        ArciumX25519Nonce,
+        MintAddress,
+        RescueCiphertext,
         Sha3Hash,
         SolanaAddress,
         SolanaTransactionSignature,
@@ -19,7 +23,10 @@ import { RelayerForwarder } from '@/client/implementation/relayer-forwarder';
 import { Umbra } from '@/idl';
 import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
 import idl from '@/idl/idl.json';
-import { getArciumEncryptedUserAccountPda } from '@/utils/pda-generators';
+import {
+        getArciumEncryptedTokenAccountPda,
+        getArciumEncryptedUserAccountPda,
+} from '@/utils/pda-generators';
 import { isBitSet } from '@/utils/miscellaneous';
 import { buildInitialiseArciumEncryptedUserAccountInstruction } from './instruction-builders/account-initialisation';
 import {
@@ -704,10 +711,20 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const userPublicKey = await this.umbraWallet.signer.getPublicKey();
                 const userArciumEncryptedAccountPda =
                         getArciumEncryptedUserAccountPda(userPublicKey);
-                const userArciumEncryptedAccountData =
-                        await this.program.account.arciumEncryptedUserAccount.fetch(
-                                userArciumEncryptedAccountPda
-                        );
+
+                let userArciumEncryptedAccountStatus = 0;
+                let userArciumEncryptedAccountExists = true;
+
+                try {
+                        const userArciumEncryptedAccountData =
+                                await this.program.account.arciumEncryptedUserAccount.fetch(
+                                        userArciumEncryptedAccountPda
+                                );
+                        userArciumEncryptedAccountStatus = userArciumEncryptedAccountData.status[0];
+                } catch {
+                        // If the fetch fails, we treat the account as not yet initialised.
+                        userArciumEncryptedAccountExists = false;
+                }
 
                 const FLAG_BIT_FOR_IS_INITIALISED = 0;
                 const FLAG_BIT_FOR_IS_MXE_ENCRYPTED = 1;
@@ -716,10 +733,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const instructions: Array<TransactionInstruction> = [];
 
                 if (
-                        !isBitSet(
-                                userArciumEncryptedAccountData.status[0],
-                                FLAG_BIT_FOR_IS_INITIALISED
-                        )
+                        !userArciumEncryptedAccountExists ||
+                        !isBitSet(userArciumEncryptedAccountStatus, FLAG_BIT_FOR_IS_INITIALISED)
                 ) {
                         instructions.push(
                                 await buildInitialiseArciumEncryptedUserAccountInstruction(
@@ -732,22 +747,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         }
                                 )
                         );
-                } else {
-                        if (
-                                !isBitSet(
-                                        userArciumEncryptedAccountData.status[0],
-                                        FLAG_BIT_FOR_IS_ACTIVE
-                                )
-                        ) {
-                                throw new UmbraClientError('User account is not active');
-                        }
+                } else if (!isBitSet(userArciumEncryptedAccountStatus, FLAG_BIT_FOR_IS_ACTIVE)) {
+                        throw new UmbraClientError('User account is not active');
                 }
 
                 if (
-                        isBitSet(
-                                userArciumEncryptedAccountData.status[0],
-                                FLAG_BIT_FOR_IS_MXE_ENCRYPTED
-                        )
+                        !userArciumEncryptedAccountExists ||
+                        isBitSet(userArciumEncryptedAccountStatus, FLAG_BIT_FOR_IS_MXE_ENCRYPTED)
                 ) {
                         instructions.push(
                                 await buildConvertUserAccountFromMxeToSharedInstruction(
@@ -1044,18 +1050,26 @@ export class UmbraClient<T = SolanaTransactionSignature> {
 
                 const userArciumEncryptedAccountPda =
                         getArciumEncryptedUserAccountPda(userPublicKey);
-                const userArciumEncryptedAccountData =
-                        await this.program.account.arciumEncryptedUserAccount.fetch(
-                                userArciumEncryptedAccountPda
-                        );
+
+                let userArciumEncryptedAccountStatus = 0;
+                let userArciumEncryptedAccountExists = true;
+
+                try {
+                        const userArciumEncryptedAccountData =
+                                await this.program.account.arciumEncryptedUserAccount.fetch(
+                                        userArciumEncryptedAccountPda
+                                );
+                        userArciumEncryptedAccountStatus = userArciumEncryptedAccountData.status[0];
+                } catch {
+                        // If the fetch fails, we treat the account as not yet initialised.
+                        userArciumEncryptedAccountExists = false;
+                }
 
                 const instructions: Array<TransactionInstruction> = [];
 
                 if (
-                        !isBitSet(
-                                userArciumEncryptedAccountData.status[0],
-                                FLAG_BIT_FOR_IS_INITIALISED
-                        )
+                        !userArciumEncryptedAccountExists ||
+                        !isBitSet(userArciumEncryptedAccountStatus, FLAG_BIT_FOR_IS_INITIALISED)
                 ) {
                         instructions.push(
                                 await buildInitialiseArciumEncryptedUserAccountInstruction(
@@ -1068,17 +1082,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         }
                                 )
                         );
-                } else if (
-                        !isBitSet(userArciumEncryptedAccountData.status[0], FLAG_BIT_FOR_IS_ACTIVE)
-                ) {
+                } else if (!isBitSet(userArciumEncryptedAccountStatus, FLAG_BIT_FOR_IS_ACTIVE)) {
                         throw new UmbraClientError('User account is not active');
                 }
 
                 if (
-                        isBitSet(
-                                userArciumEncryptedAccountData.status[0],
-                                FLAG_BIT_FOR_IS_MXE_ENCRYPTED
-                        )
+                        !userArciumEncryptedAccountExists ||
+                        isBitSet(userArciumEncryptedAccountStatus, FLAG_BIT_FOR_IS_MXE_ENCRYPTED)
                 ) {
                         instructions.push(
                                 await buildConvertUserAccountFromMxeToSharedInstruction(
@@ -1134,8 +1144,9 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         );
 
                 if (
+                        !userArciumEncryptedAccountExists ||
                         !isBitSet(
-                                userArciumEncryptedAccountData.status[0],
+                                userArciumEncryptedAccountStatus,
                                 FLAG_BIT_FOR_HAS_REGISTERED_MASTER_VIEWING_KEY
                         )
                 ) {
@@ -1162,5 +1173,200 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 }
 
                 return { userPublicKey, instructions };
+        }
+
+        /**
+         * Returns the decrypted balance of the user's Arcium-encrypted SPL token account.
+         *
+         * @param mint - The SPL token mint address whose encrypted balance should be queried.
+         * @returns The decrypted token balance as an {@link Amount}.
+         *
+         * @remarks
+         * This method:
+         * - Derives the Arcium-encrypted token account PDA for the current user and the given mint.
+         * - Fetches the on-chain encrypted token account data.
+         * - Decrypts the encrypted balance using the Umbra wallet's MXE Rescue cipher.
+         *
+         * If the encrypted token account does not exist on-chain (for example, the user has never
+         * held this token), the fetch will fail and this method will return a zero balance
+         * (`0n` cast to {@link Amount}) instead of throwing.
+         *
+         * When called with multiple mints (array overload), this method uses a single
+         * `fetchMultiple` call under the hood and returns a {@link Map} from {@link MintAddress}
+         * to decrypted {@link Amount}. Any mint whose encrypted account is missing or malformed
+         * will be mapped to a zero balance.
+         *
+         * @throws {@link UmbraClientError}
+         * - If no Umbra wallet has been configured on the client.
+         * - If the Arcium-encrypted token account PDA cannot be derived (single-mint overload).
+         * - If the Rescue cipher for `MXE_ARCIUM_X25519_PUBLIC_KEY` is not available.
+         * - If the encrypted balance or nonce are missing or malformed (single-mint overload).
+         * - If decryption succeeds but returns an unexpected result (single-mint overload).
+         *
+         * @example
+         * ```ts
+         * // Assume `client` has been created and configured with an Umbra wallet.
+         * const usdcMint: MintAddress = /* obtain SPL token mint address *\/;
+         *
+         * const balance = await client.getEncryptedTokenBalance(usdcMint);
+         * console.log(`Decrypted USDC balance: ${balance.toString()}`);
+         * ```
+         *
+         * @example
+         * ```ts
+         * const [usdcMint, usdtMint]: MintAddress[] = [/* ... *\/, /* ... *\/];
+         * const balances = await client.getEncryptedTokenBalance([usdcMint, usdtMint]);
+         *
+         * console.log(balances.get(usdcMint)?.toString()); // e.g. "1000000"
+         * console.log(balances.get(usdtMint)?.toString()); // "0" if no account exists
+         * ```
+         */
+        public async getEncryptedTokenBalance(mint: MintAddress): Promise<Amount>;
+        public async getEncryptedTokenBalance(
+                mints: MintAddress[]
+        ): Promise<Map<MintAddress, Amount>>;
+        public async getEncryptedTokenBalance(
+                mintOrMints: MintAddress | MintAddress[]
+        ): Promise<Amount | Map<MintAddress, Amount>> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to fetch encrypted token balances'
+                        );
+                }
+
+                const userPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                // Multi-mint overload: batch PDA derivation and `fetchMultiple`.
+                if (Array.isArray(mintOrMints)) {
+                        const result = new Map<MintAddress, Amount>();
+
+                        const pdas: Array<ReturnType<typeof getArciumEncryptedTokenAccountPda>> =
+                                [];
+                        const mintsWithDerivedPdas: MintAddress[] = [];
+
+                        for (const mint of mintOrMints) {
+                                try {
+                                        const pda = getArciumEncryptedTokenAccountPda(
+                                                userPublicKey,
+                                                mint
+                                        );
+                                        pdas.push(pda);
+                                        mintsWithDerivedPdas.push(mint);
+                                } catch {
+                                        // If PDA derivation fails, treat as zero balance.
+                                        result.set(mint, 0n as Amount);
+                                }
+                        }
+
+                        if (pdas.length === 0) {
+                                return result;
+                        }
+
+                        const accounts =
+                                await this.program.account.arciumEncryptedTokenAccount.fetchMultiple(
+                                        pdas
+                                );
+
+                        for (let index = 0; index < mintsWithDerivedPdas.length; index += 1) {
+                                const mint = mintsWithDerivedPdas[index]!;
+                                const account = accounts[index];
+
+                                if (!account) {
+                                        // Missing account ⇒ zero balance.
+                                        result.set(mint, 0n as Amount);
+                                        continue;
+                                }
+
+                                try {
+                                        const amount =
+                                                await this.decryptEncryptedTokenAccountBalance(
+                                                        account
+                                                );
+                                        result.set(mint, amount);
+                                } catch {
+                                        // Malformed or undecryptable account ⇒ zero balance.
+                                        result.set(mint, 0n as Amount);
+                                }
+                        }
+
+                        return result;
+                }
+
+                // Single-mint overload: preserve existing precise error semantics.
+                let userEncryptedTokenAccountPda;
+                try {
+                        userEncryptedTokenAccountPda = getArciumEncryptedTokenAccountPda(
+                                userPublicKey,
+                                mintOrMints
+                        );
+                } catch (error) {
+                        throw new UmbraClientError(
+                                'Failed to derive Arcium-encrypted token account PDA'
+                        );
+                }
+
+                let userEncryptedTokenAccountData: any;
+                try {
+                        userEncryptedTokenAccountData =
+                                await this.program.account.arciumEncryptedTokenAccount.fetch(
+                                        userEncryptedTokenAccountPda
+                                );
+                } catch {
+                        // If the fetch fails, we treat it as "no token account", i.e. zero balance.
+                        return 0n as Amount;
+                }
+
+                return this.decryptEncryptedTokenAccountBalance(userEncryptedTokenAccountData);
+        }
+
+        private async decryptEncryptedTokenAccountBalance(accountData: any): Promise<Amount> {
+                if (
+                        !accountData?.balance ||
+                        !Array.isArray(accountData.balance) ||
+                        !accountData.balance[0]
+                ) {
+                        throw new UmbraClientError(
+                                'Malformed encrypted token account data: missing balance ciphertext'
+                        );
+                }
+
+                if (
+                        !accountData?.nonce ||
+                        !Array.isArray(accountData.nonce) ||
+                        !accountData.nonce[0]
+                ) {
+                        throw new UmbraClientError(
+                                'Malformed encrypted token account data: missing encryption nonce'
+                        );
+                }
+
+                const encryptedBalance = Uint8Array.from(
+                        accountData.balance[0]
+                ) as RescueCiphertext;
+
+                const encryptionNonce = BigInt(
+                        accountData.nonce[0].toString()
+                ) as ArciumX25519Nonce;
+
+                const cipher = this.umbraWallet?.rescueCiphers.get(MXE_ARCIUM_X25519_PUBLIC_KEY);
+                if (!cipher) {
+                        throw new UmbraClientError(
+                                'Rescue cipher for MXE_ARCIUM_X25519_PUBLIC_KEY is not configured on the Umbra wallet'
+                        );
+                }
+
+                const decryptedBalance = await cipher.decrypt([encryptedBalance], encryptionNonce);
+
+                if (
+                        !decryptedBalance ||
+                        decryptedBalance.length === 0 ||
+                        decryptedBalance[0] == null
+                ) {
+                        throw new UmbraClientError(
+                                'Unexpected result when decrypting encrypted token balance'
+                        );
+                }
+
+                return decryptedBalance[0] as Amount;
         }
 }

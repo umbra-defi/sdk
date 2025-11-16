@@ -314,3 +314,39 @@ export function getArciumEncryptedUserAccountPda(
                 );
         }
 }
+
+/**
+ * Derives the PDA for a user's Arcium-encrypted SPL token account.
+ *
+ * @param userPublicKey - The owner's public key for whom the encrypted token account is derived.
+ * @param mint - The SPL token mint address associated with the encrypted token account.
+ * @returns The derived `ProgramDerivedAddress` for the Arcium-encrypted token account.
+ *
+ * @throws {@link PdaGenerationError} When PDA derivation fails (e.g. invalid inputs or program ID).
+ *
+ * @remarks
+ * The PDA is derived using the seed:
+ * `["arcium_encrypted_token_account", userPublicKey, mint]`
+ * under the Umbra program ID. This PDA is used to store encrypted token account state for a
+ * specific user/mint pair.
+ */
+export function getArciumEncryptedTokenAccountPda(
+        userPublicKey: SolanaAddress,
+        mint: MintAddress
+): ProgramDerivedAddress {
+        try {
+                return PublicKey.findProgramAddressSync(
+                        [
+                                Buffer.from('arcium_encrypted_token_account'),
+                                userPublicKey.toBuffer(),
+                                mint.toBuffer(),
+                        ],
+                        program.programId
+                )[0] as ProgramDerivedAddress;
+        } catch (error) {
+                throw new PdaGenerationError(
+                        'Failed to derive Arcium-encrypted token account PDA',
+                        error instanceof Error ? error : undefined
+                );
+        }
+}
