@@ -51,6 +51,7 @@ import {
         buildDepositIntoMixerSolInstruction,
         buildDepositIntoMixerPoolSplInstruction,
 } from './instruction-builders/deposit';
+import { WSOL_MINT_ADDRESS } from '@/constants/anchor';
 
 /**
  * Error thrown when adding an Umbra wallet to the client fails.
@@ -1464,12 +1465,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        ): Promise<SolanaTransactionSignature>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 index: U256
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        ): Promise<SolanaTransactionSignature>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -1513,6 +1514,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 destinationAddress: SolanaAddress,
                 index: U256,
                 opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async depositPublicallyIntoMixerPoolSol(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                index: U256,
+                opts: { mode: 'raw' }
         ): Promise<VersionedTransaction>;
         public async depositPublicallyIntoMixerPoolSol(
                 amount: Amount,
@@ -1781,13 +1788,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        ): Promise<SolanaTransactionSignature>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 index: U256
-        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        ): Promise<SolanaTransactionSignature>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
@@ -1839,6 +1846,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 mintAddress: MintAddress,
                 index: U256,
                 opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async depositPublicallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                index: U256,
+                opts: { mode: 'raw' }
         ): Promise<VersionedTransaction>;
         public async depositPublicallyIntoMixerPoolSpl(
                 amount: Amount,
@@ -2045,6 +2059,272 @@ export class UmbraClient<T = SolanaTransactionSignature> {
 
                 // 'connection' mode: send via connectionBasedForwarder.
                 return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Convenience wrapper that deposits either SOL (via WSOL) or SPL tokens into the mixer pool,
+         * delegating to {@link depositPublicallyIntoMixerPoolSol} or
+         * {@link depositPublicallyIntoMixerPoolSpl} as appropriate based on the mint.
+         *
+         * @param amount - The amount of SOL/SPL tokens to deposit.
+         * @param destinationAddress - The Solana address where withdrawn funds should ultimately be sent.
+         * @param mintAddress - The SPL mint address. If this is `WSOL_MINT_ADDRESS`, the SOL path is used.
+         * @param indexOrOpts - Optional fixed index (`U256`) or options object controlling transaction mode.
+         * @param maybeOpts - Optional options object when a fixed index is provided.
+         *
+         * @remarks
+         * - When `mintAddress === WSOL_MINT_ADDRESS`, this method behaves exactly like
+         *   {@link depositPublicallyIntoMixerPoolSol}, including relayer and commission fee cuts
+         *   from the deposited amount.
+         * - For all other mints, it behaves like {@link depositPublicallyIntoMixerPoolSpl}, where
+         *   the full SPL `amount` is committed into the mixer pool and relayer fees are paid from WSOL.
+         *
+         * All `mode` and `index` semantics mirror the underlying SOL/SPL methods.
+         */
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress
+        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                index: U256
+        ): Promise<SolanaTransactionSignature | T | VersionedTransaction>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: { mode: 'connection' }
+        ): Promise<SolanaTransactionSignature>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                index: U256,
+                opts: { mode: 'connection' }
+        ): Promise<SolanaTransactionSignature>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: { mode: 'forwarder' }
+        ): Promise<T>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                index: U256,
+                opts: { mode: 'forwarder' }
+        ): Promise<T>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                index: U256,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                index: U256,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: { mode: 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async depositPublicallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                indexOrOpts?:
+                        | U256
+                        | { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' },
+                maybeOpts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
+        ): Promise<SolanaTransactionSignature | T | VersionedTransaction> {
+                const optsParam = (typeof indexOrOpts === 'bigint' ? maybeOpts : indexOrOpts) ?? {
+                        mode: 'forwarder',
+                };
+                const index = typeof indexOrOpts === 'bigint' ? (indexOrOpts as U256) : undefined;
+                const mode = optsParam.mode;
+
+                if (mintAddress === WSOL_MINT_ADDRESS) {
+                        if (index !== undefined) {
+                                if (mode === 'connection') {
+                                        return this.depositPublicallyIntoMixerPoolSol(
+                                                amount,
+                                                destinationAddress,
+                                                index,
+                                                { mode: 'connection' }
+                                        );
+                                }
+                                if (mode === 'forwarder') {
+                                        return this.depositPublicallyIntoMixerPoolSol(
+                                                amount,
+                                                destinationAddress,
+                                                index,
+                                                { mode: 'forwarder' }
+                                        );
+                                }
+                                if (mode === 'signed') {
+                                        return this.depositPublicallyIntoMixerPoolSol(
+                                                amount,
+                                                destinationAddress,
+                                                index,
+                                                { mode: 'signed' }
+                                        );
+                                }
+                                if (mode === 'prepared') {
+                                        return this.depositPublicallyIntoMixerPoolSol(
+                                                amount,
+                                                destinationAddress,
+                                                index,
+                                                { mode: 'prepared' }
+                                        );
+                                }
+                                return this.depositPublicallyIntoMixerPoolSol(
+                                        amount,
+                                        destinationAddress,
+                                        index,
+                                        { mode: 'raw' }
+                                );
+                        }
+
+                        if (mode === 'connection') {
+                                return this.depositPublicallyIntoMixerPoolSol(
+                                        amount,
+                                        destinationAddress,
+                                        { mode: 'connection' }
+                                );
+                        }
+                        if (mode === 'forwarder') {
+                                return this.depositPublicallyIntoMixerPoolSol(
+                                        amount,
+                                        destinationAddress,
+                                        { mode: 'forwarder' }
+                                );
+                        }
+                        if (mode === 'signed') {
+                                return this.depositPublicallyIntoMixerPoolSol(
+                                        amount,
+                                        destinationAddress,
+                                        { mode: 'signed' }
+                                );
+                        }
+                        if (mode === 'prepared') {
+                                return this.depositPublicallyIntoMixerPoolSol(
+                                        amount,
+                                        destinationAddress,
+                                        { mode: 'prepared' }
+                                );
+                        }
+                        return this.depositPublicallyIntoMixerPoolSol(amount, destinationAddress, {
+                                mode: 'raw',
+                        });
+                }
+
+                if (index !== undefined) {
+                        if (mode === 'connection') {
+                                return this.depositPublicallyIntoMixerPoolSpl(
+                                        amount,
+                                        destinationAddress,
+                                        mintAddress,
+                                        index,
+                                        { mode: 'connection' }
+                                );
+                        }
+                        if (mode === 'forwarder') {
+                                return this.depositPublicallyIntoMixerPoolSpl(
+                                        amount,
+                                        destinationAddress,
+                                        mintAddress,
+                                        index,
+                                        { mode: 'forwarder' }
+                                );
+                        }
+                        if (mode === 'signed') {
+                                return this.depositPublicallyIntoMixerPoolSpl(
+                                        amount,
+                                        destinationAddress,
+                                        mintAddress,
+                                        index,
+                                        { mode: 'signed' }
+                                );
+                        }
+                        if (mode === 'prepared') {
+                                return this.depositPublicallyIntoMixerPoolSpl(
+                                        amount,
+                                        destinationAddress,
+                                        mintAddress,
+                                        index,
+                                        { mode: 'prepared' }
+                                );
+                        }
+                        return this.depositPublicallyIntoMixerPoolSpl(
+                                amount,
+                                destinationAddress,
+                                mintAddress,
+                                index,
+                                { mode: 'raw' }
+                        );
+                }
+
+                if (mode === 'connection') {
+                        return this.depositPublicallyIntoMixerPoolSpl(
+                                amount,
+                                destinationAddress,
+                                mintAddress,
+                                { mode: 'connection' }
+                        );
+                }
+                if (mode === 'forwarder') {
+                        return this.depositPublicallyIntoMixerPoolSpl(
+                                amount,
+                                destinationAddress,
+                                mintAddress,
+                                { mode: 'forwarder' }
+                        );
+                }
+                if (mode === 'signed') {
+                        return this.depositPublicallyIntoMixerPoolSpl(
+                                amount,
+                                destinationAddress,
+                                mintAddress,
+                                { mode: 'signed' }
+                        );
+                }
+                if (mode === 'prepared') {
+                        return this.depositPublicallyIntoMixerPoolSpl(
+                                amount,
+                                destinationAddress,
+                                mintAddress,
+                                { mode: 'prepared' }
+                        );
+                }
+
+                return this.depositPublicallyIntoMixerPoolSpl(
+                        amount,
+                        destinationAddress,
+                        mintAddress,
+                        { mode: 'raw' }
+                );
         }
 
         /**
