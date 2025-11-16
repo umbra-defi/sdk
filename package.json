@@ -2,14 +2,14 @@
         "name": "umbra-sdk-version",
         "version": "1.0.0",
         "description": "",
-        "main": "./dist/cjs/index.js",
-        "module": "./dist/esm/index.js",
-        "types": "./dist/esm/index.d.ts",
+        "main": "./dist/index.cjs",
+        "module": "./dist/index.mjs",
+        "types": "./dist/index.d.ts",
         "exports": {
                 ".": {
-                        "types": "./dist/esm/index.d.ts",
-                        "import": "./dist/esm/index.js",
-                        "require": "./dist/cjs/index.js"
+                        "types": "./dist/index.d.ts",
+                        "import": "./dist/index.mjs",
+                        "require": "./dist/index.cjs"
                 },
                 "./package.json": "./package.json"
         },
@@ -18,13 +18,8 @@
                 "src"
         ],
         "scripts": {
-                "build": "pnpm build:clean && pnpm build:esm && pnpm build:cjs",
-                "build:clean": "rm -rf dist",
-                "build:esm": "tsc -p tsconfig.esm.json",
-                "build:cjs": "tsc -p tsconfig.cjs.json",
-                "build:watch": "pnpm build:esm:watch & pnpm build:cjs:watch",
-                "build:esm:watch": "tsc -p tsconfig.esm.json --watch",
-                "build:cjs:watch": "tsc -p tsconfig.cjs.json --watch",
+                "build": "tsup",
+                "build:watch": "tsup --watch",
                 "type-check": "tsc --noEmit",
                 "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md,yml,yaml}\"",
                 "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,scss,md,yml,yaml}\"",
@@ -42,6 +37,7 @@
                 "client": "link:@types/arcium-hq/client",
                 "curves": "link:@types/noble/curves",
                 "hashes": "link:@types/@noble/hashes",
+                "tsup": "^8.0.1",
                 "prettier": "^3.2.5",
                 "typescript": "^5.3.3"
         },
