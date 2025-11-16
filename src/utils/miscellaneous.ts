@@ -389,3 +389,14 @@ export function generateRandomPublicCommissionFeesAccountOffset(
                 );
         }
 }
+
+/**
+ * Checks whether a specific bit is set in a numeric value.
+ *
+ * @param value - The numeric value whose bits will be inspected.
+ * @param bit - The zero-based index of the bit to check (0 for least-significant bit).
+ * @returns `true` if the bit at the given index is set to 1, otherwise `false`.
+ */
+export function isBitSet(value: number, bit: number): boolean {
+        return (value & (1 << bit)) !== 0;
+}

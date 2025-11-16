@@ -17,12 +17,12 @@ import { ISigner, SignerError } from '@/client/interface';
 import { RescueCipher } from '@/client/implementation';
 import { DEFAULT_SIGNING_MESSAGE, MXE_ARCIUM_X25519_PUBLIC_KEY } from '@/constants/arcium';
 import { kmac128, kmac256 } from '@noble/hashes/sha3-addons.js';
-import { x25519 } from '@noble/curves/ed25519.js';
+import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { convertU128BeBytesToU128 } from '@/utils/convertors';
 // Imported for TSDoc @throws type references - used in JSDoc comments
 // @ts-expect-error - This import is used in JSDoc @throws tags, but TypeScript doesn't recognize JSDoc as usage
 import { PoseidonHasher, PoseidonHasherError } from '@/utils/hasher';
-import { VersionedTransaction } from '@solana/web3.js';
+import { Keypair, VersionedTransaction } from '@solana/web3.js';
 
 /**
  * Abstract base class for all Umbra wallet-related errors.
@@ -491,6 +491,37 @@ export class UmbraWallet {
         }
 
         /**
+         * Signs a message using a one-time ephemeral Ed25519 keypair.
+         *
+         * @param message - The message bytes to sign
+         * @returns A promise resolving to the signature and the ephemeral public key bytes
+         *
+         * @remarks
+         * This method generates a fresh Ed25519 keypair for each call using the noble
+         * Ed25519 implementation. The private key is used immediately to sign the
+         * provided message and is not stored on the wallet instance.
+         *
+         * The returned public key can be used by the caller to verify the signature
+         * or to include the ephemeral key in on-chain data structures.
+         */
+        public async signMessageWithEphemeralKeypair(message: Bytes): Promise<{
+                signature: SolanaSignature;
+                ephemeralPublicKey: Bytes;
+        }> {
+                // Generate a fresh Ed25519 private key and corresponding public key
+                const privateKey = ed25519.utils.randomSecretKey();
+                const publicKey = ed25519.getPublicKey(privateKey) as Bytes;
+
+                // Sign the message with the ephemeral private key
+                const signature = ed25519.sign(message, privateKey) as SolanaSignature;
+
+                return {
+                        signature,
+                        ephemeralPublicKey: publicKey,
+                };
+        }
+
+        /**
          * Signs a single Solana versioned transaction.
          *
          * @param transaction - The versioned transaction to sign
@@ -513,6 +544,46 @@ export class UmbraWallet {
         ): Promise<VersionedTransaction> {
                 const signedTransaction = await this.signer.signTransaction(transaction);
                 return signedTransaction;
+        }
+
+        /**
+         * Signs a Solana versioned transaction using a one-time ephemeral Ed25519 keypair.
+         *
+         * @param transaction - The versioned transaction to sign
+         * @returns A promise resolving to the signed transaction and the ephemeral public key bytes
+         *
+         * @remarks
+         * This method generates a fresh Ed25519 keypair for each call, constructs a Solana
+         * `Keypair` from it, and uses the transaction's `sign` method to attach the signature.
+         * The private key is scoped to this method and is not stored on the wallet instance.
+         *
+         * The returned public key allows callers to add the ephemeral signer to account
+         * metas or verify the transaction signature as needed.
+         */
+        public async signTransactionWithEphemeralKeypair(
+                transaction: VersionedTransaction
+        ): Promise<{
+                signedTransaction: VersionedTransaction;
+                ephemeralPublicKey: Bytes;
+        }> {
+                // Generate a fresh Ed25519 private key and corresponding public key
+                const privateKey = ed25519.utils.randomSecretKey();
+                const publicKey = ed25519.getPublicKey(privateKey) as Bytes;
+
+                // Solana Keypair secretKey is 64 bytes: [privateKey(32) | publicKey(32)]
+                const secretKey = new Uint8Array(64);
+                secretKey.set(privateKey, 0);
+                secretKey.set(publicKey, 32);
+
+                const ephemeralKeypair = Keypair.fromSecretKey(secretKey);
+
+                // Sign the transaction with the ephemeral keypair
+                transaction.sign([ephemeralKeypair]);
+
+                return {
+                        signedTransaction: transaction,
+                        ephemeralPublicKey: publicKey,
+                };
         }
 
         /**
