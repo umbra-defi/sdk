@@ -1,8 +1,12 @@
 import { UmbraWallet, UmbraWalletError } from '@/client/umbra-wallet';
 import { ITransactionForwarder, ISigner } from './interface';
-import { SolanaTransactionSignature } from '@/types';
+import { SolanaAddress, SolanaTransactionSignature } from '@/types';
 import { ConnectionBasedForwarder } from '@/client/implementation/connection-based-forwarder';
-import { Connection } from '@solana/web3.js';
+import { Connection, Keypair } from '@solana/web3.js';
+import { RelayerForwarder } from '@/client/implementation/relayer-forwarder';
+import { Umbra } from '@/idl';
+import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
+import idl from '@/idl/idl.json';
 
 /**
  * Error thrown when adding an Umbra wallet to the client fails.
@@ -126,15 +130,18 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * resumption. This is the primary forwarder created during client initialization.
          */
         public readonly connectionBasedForwarder: ConnectionBasedForwarder;
+        public readonly program: Program<Umbra>;
 
         private constructor(
                 umbraWallets: Array<UmbraWallet>,
                 txForwarders: Array<ITransactionForwarder<T>>,
-                connectionBasedForwarder: ConnectionBasedForwarder
+                connectionBasedForwarder: ConnectionBasedForwarder,
+                program: Program<Umbra>
         ) {
                 this.umbraWallets = umbraWallets;
                 this.txForwarders = txForwarders;
                 this.connectionBasedForwarder = connectionBasedForwarder;
+                this.program = program;
         }
 
         /**
@@ -251,7 +258,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         );
                 }
 
-                return new UmbraClient([], [], connectionBasedForwarder);
+                // Create Anchor Provider and Program using the underlying connection
+                const connection = connectionBasedForwarder.getConnection();
+                const randomKeypair = Keypair.generate();
+                const wallet = new Wallet(randomKeypair);
+                const provider = new AnchorProvider(connection, wallet);
+                const program = new Program<Umbra>(idl as Umbra, provider);
+
+                return new UmbraClient([], [], connectionBasedForwarder, program);
         }
 
         /**
@@ -368,5 +382,22 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 error instanceof Error ? error : undefined
                         );
                 }
+        }
+
+        public static getRelayerForwarder(relayerPublicKey: SolanaAddress): RelayerForwarder {
+                return RelayerForwarder.fromPublicKey(relayerPublicKey);
+        }
+
+        /**
+         * Creates a relayer-based transaction forwarder using a randomly selected relayer.
+         *
+         * @remarks
+         * This method delegates to `RelayerForwarder.getRandomRelayerForwarder`, which queries
+         * the Umbra relayer discovery service to obtain a suitable relayer public key.
+         *
+         * @returns A promise resolving to a `RelayerForwarder` instance.
+         */
+        public static getRandomRelayerForwarder(): Promise<RelayerForwarder> {
+                return RelayerForwarder.getRandomRelayerForwarder();
         }
 }

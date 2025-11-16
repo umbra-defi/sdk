@@ -151,6 +151,15 @@ export class ConnectionBasedForwarder extends ITransactionForwarder<SolanaTransa
         }
 
         /**
+         * Returns the underlying Solana `Connection` instance used by this forwarder.
+         *
+         * @returns The `Connection` instance.
+         */
+        public getConnection(): Connection {
+                return this.connection;
+        }
+
+        /**
          * Creates a ConnectionBasedForwarder from an existing Connection instance.
          *
          * @param connection - The Solana Connection instance to use

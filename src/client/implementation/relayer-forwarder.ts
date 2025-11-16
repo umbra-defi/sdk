@@ -1,6 +1,6 @@
 import { SolanaAddress, SolanaTransactionSignature } from '@/types';
 import { ITransactionForwarder, TransactionForwarderError } from '@/client/interface';
-import { VersionedTransaction } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { RELAYER_BASE_URL } from '@/constants/anchor';
 
 /**
@@ -206,6 +206,184 @@ export class RelayerForwarder extends ITransactionForwarder<SolanaTransactionSig
          */
         public static fromPublicKey(relayerPublicKey: SolanaAddress): RelayerForwarder {
                 return new RelayerForwarder(relayerPublicKey);
+        }
+
+        /**
+         * Creates a RelayerForwarder using a randomly selected relayer.
+         *
+         * @remarks
+         * This method selects a random relayer index and queries the relayer
+         * discovery service at `https://relayer.umbraprivacy.com` to obtain
+         * the corresponding relayer public key.
+         *
+         * **Request body**
+         * ```json
+         * { "relayerIndex": number }
+         * ```
+         *
+         * **Successful response**
+         * ```json
+         * { "relayerPublicKey": string }
+         * ```
+         *
+         * **Error response**
+         * ```json
+         * { "error": object }
+         * ```
+         *
+         * @returns A promise resolving to a new RelayerForwarder instance.
+         *
+         * @throws {@link RelayerServiceError} When the relayer discovery service
+         *         returns an error object.
+         * @throws {@link RelayerTransactionForwardingError} When the HTTP request
+         *         fails or the response format is invalid.
+         */
+        public static async getRandomRelayerForwarder(): Promise<RelayerForwarder> {
+                const NUMBER_OF_RELAYERS = 1;
+                const relayerIndex = Math.floor(Math.random() * NUMBER_OF_RELAYERS);
+
+                try {
+                        const response = (await fetch('https://relayer.umbraprivacy.com', {
+                                method: 'POST',
+                                headers: {
+                                        'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({ relayerIndex }),
+                        })) as {
+                                ok: boolean;
+                                status: number;
+                                statusText: string;
+                                json(): Promise<unknown>;
+                        };
+
+                        if (!response.ok) {
+                                throw new RelayerTransactionForwardingError(
+                                        `Relayer discovery service returned status ${response.status}: ${response.statusText}`
+                                );
+                        }
+
+                        const jsonData = await response.json();
+                        const data = jsonData as { relayerPublicKey?: string } | { error: unknown };
+
+                        if ('error' in data) {
+                                throw new RelayerServiceError(
+                                        'Relayer discovery service returned an error',
+                                        (data as { error: unknown }).error
+                                );
+                        }
+
+                        const relayerPublicKey = (data as { relayerPublicKey?: string })
+                                .relayerPublicKey;
+
+                        if (typeof relayerPublicKey !== 'string' || relayerPublicKey.length === 0) {
+                                throw new RelayerTransactionForwardingError(
+                                        'Invalid response format from relayer discovery service: missing or invalid relayerPublicKey'
+                                );
+                        }
+
+                        const publicKey = new PublicKey(relayerPublicKey) as SolanaAddress;
+                        return RelayerForwarder.fromPublicKey(publicKey);
+                } catch (error) {
+                        if (error instanceof TransactionForwarderError) {
+                                throw error;
+                        }
+
+                        throw new RelayerTransactionForwardingError(
+                                `Failed to get random relayer forwarder: ${
+                                        error instanceof Error ? error.message : String(error)
+                                }`,
+                                error instanceof TransactionForwarderError ? error : undefined
+                        );
+                }
+        }
+
+        /**
+         * Fetches the list of currently registered relayer public keys.
+         *
+         * @remarks
+         * This method performs a simple GET request to `https://relayer.umbraprivacy.com`.
+         * The service responds with either:
+         *
+         * **Successful response**
+         * ```json
+         * { "relayerPublicKeys": string[] }
+         * ```
+         *
+         * **Error response**
+         * ```json
+         * { "error": object }
+         * ```
+         *
+         * At most 10 relayer public keys will be returned.
+         *
+         * @returns A promise resolving to an array of `SolanaAddress` values.
+         *
+         * @throws {@link RelayerServiceError} When the relayer discovery service
+         *         returns an error object.
+         * @throws {@link RelayerTransactionForwardingError} When the HTTP request
+         *         fails or the response format is invalid.
+         */
+        public static async getRelayerList(): Promise<Array<SolanaAddress>> {
+                try {
+                        const response = (await fetch('https://relayer.umbraprivacy.com', {
+                                method: 'GET',
+                        })) as {
+                                ok: boolean;
+                                status: number;
+                                statusText: string;
+                                json(): Promise<unknown>;
+                        };
+
+                        if (!response.ok) {
+                                throw new RelayerTransactionForwardingError(
+                                        `Relayer discovery service returned status ${response.status}: ${response.statusText}`
+                                );
+                        }
+
+                        const jsonData = await response.json();
+                        const data = jsonData as
+                                | { relayerPublicKeys?: Array<string> }
+                                | {
+                                          error: unknown;
+                                  };
+
+                        if ('error' in data) {
+                                throw new RelayerServiceError(
+                                        'Relayer discovery service returned an error',
+                                        (data as { error: unknown }).error
+                                );
+                        }
+
+                        const relayerPublicKeys = (
+                                data as {
+                                        relayerPublicKeys?: Array<string>;
+                                }
+                        ).relayerPublicKeys;
+
+                        if (
+                                !Array.isArray(relayerPublicKeys) ||
+                                relayerPublicKeys.some(
+                                        (key) => typeof key !== 'string' || key.length === 0
+                                )
+                        ) {
+                                throw new RelayerTransactionForwardingError(
+                                        'Invalid response format from relayer discovery service: missing or invalid relayerPublicKeys'
+                                );
+                        }
+
+                        return relayerPublicKeys.map((key) => new PublicKey(key) as SolanaAddress);
+                } catch (error) {
+                        if (error instanceof TransactionForwarderError) {
+                                throw error;
+                        }
+
+                        throw new RelayerTransactionForwardingError(
+                                `Failed to get relayer list: ${
+                                        error instanceof Error ? error.message : String(error)
+                                }`,
+                                error instanceof TransactionForwarderError ? error : undefined
+                        );
+                }
         }
 
         /**
