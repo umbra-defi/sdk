@@ -1,6 +1,12 @@
 import { UmbraWallet, UmbraWalletError } from '@/client/umbra-wallet';
-import { ITransactionForwarder, ISigner } from './interface';
-import { Sha3Hash, SolanaAddress, SolanaTransactionSignature } from '@/types';
+import { ITransactionForwarder, ISigner, IZkProver } from '@/client/interface';
+import {
+        Sha3Hash,
+        SolanaAddress,
+        SolanaTransactionSignature,
+        U256BeBytes,
+        U256LeBytes,
+} from '@/types';
 import { ConnectionBasedForwarder } from '@/client/implementation/connection-based-forwarder';
 import {
         Connection,
@@ -16,7 +22,15 @@ import idl from '@/idl/idl.json';
 import { getArciumEncryptedUserAccountPda } from '@/utils/pda-generators';
 import { isBitSet } from '@/utils/miscellaneous';
 import { buildInitialiseArciumEncryptedUserAccountInstruction } from './instruction-builders/account-initialisation';
-import { buildConvertUserAccountFromMxeToSharedInstruction } from './instruction-builders/conversion';
+import {
+        buildConvertUserAccountFromMxeToSharedInstruction,
+        buildUpdateMasterViewingKeyInstruction,
+} from './instruction-builders/conversion';
+import { MXE_ARCIUM_X25519_PUBLIC_KEY } from '@/constants';
+import { sha3_256 } from '@noble/hashes/sha3.js';
+import { convertU128ToBeBytes } from '@/utils/convertors';
+import { aggregateSha3HashIntoSinglePoseidonRoot, PoseidonHasher } from '@/utils/hasher';
+import { WasmZkProver, WasmZkProverConfig } from '@/client/implementation/wasm-zk-prover';
 
 /**
  * Error thrown when adding an Umbra wallet to the client fails.
@@ -148,6 +162,18 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         public txForwarder: ITransactionForwarder<T> | undefined;
 
         /**
+         * Optional zero-knowledge prover used for generating Groth16 proofs (e.g. for
+         * master viewing key registration).
+         *
+         * @remarks
+         * This prover is not required for basic client functionality, but methods that
+         * involve anonymity features or on-chain proof verification (such as
+         * `registerAccountForAnonymity`) will throw an {@link UmbraClientError} if it
+         * has not been configured.
+         */
+        public zkProver: IZkProver | undefined;
+
+        /**
          * The connection-based transaction forwarder for direct RPC submission.
          *
          * @remarks
@@ -161,12 +187,53 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         private constructor(
                 umbraWallet: UmbraWallet | undefined,
                 connectionBasedForwarder: ConnectionBasedForwarder,
-                program: Program<Umbra>
+                program: Program<Umbra>,
+                zkProver?: IZkProver
         ) {
                 this.umbraWallet = umbraWallet;
                 this.connectionBasedForwarder = connectionBasedForwarder;
                 this.program = program;
                 this.txForwarder = undefined;
+                this.zkProver = zkProver;
+        }
+
+        /**
+         * Configures the zero-knowledge prover used by this client.
+         *
+         * @remarks
+         * This method supports two configuration styles:
+         *
+         * - Pass an existing {@link IZkProver} instance:
+         *   ```typescript
+         *   const prover = new WasmZkProver({ masterViewingKeyRegistration: true });
+         *   client.setZkProver(prover);
+         *   ```
+         *
+         * - Use the `'wasm'` shorthand to construct a {@link WasmZkProver}:
+         *   ```typescript
+         *   client.setZkProver('wasm', {
+         *     masterViewingKeyRegistration: true,
+         *     createSplDepositWithHiddenAmount: true,
+         *   });
+         *   ```
+         *
+         * Methods that rely on ZK proof generation (such as {@link registerAccountForAnonymity})
+         * will throw an {@link UmbraClientError} if a prover has not been configured.
+         */
+        public setZkProver(prover: IZkProver): void;
+        public setZkProver(type: 'wasm', config: WasmZkProverConfig): void;
+        public setZkProver(arg1: IZkProver | 'wasm', arg2?: WasmZkProverConfig): void {
+                if (arg1 === 'wasm') {
+                        if (!arg2) {
+                                throw new UmbraClientError(
+                                        'Wasm ZK prover configuration is required when using the "wasm" shorthand'
+                                );
+                        }
+                        this.zkProver = new WasmZkProver(arg2);
+                        return;
+                }
+
+                this.zkProver = arg1;
         }
 
         /**
@@ -427,21 +494,105 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         }
 
         /**
-         * Builds and optionally signs and forwards a transaction to register the user's account
-         * for confidentiality. Behavior is controlled via the `mode` option.
+         * Registers the user's Umbra account for confidentiality, with flexible control over
+         * how the resulting transaction is signed and forwarded.
          *
          * @remarks
-         * Overloads:
-         * - Default / `'connection'`: Signs with the client's `umbraWallet` and sends via
+         * This high-level method constructs the correct set of instructions to:
+         * - Initialise the Arcium-encrypted user account (if not already initialised)
+         * - Validate that the account is active (if already initialised)
+         * - Convert the account from MXE-encrypted form to shared form (if required),
+         *   using the client's Umbra wallet X25519 public key.
+         *
+         * It then optionally:
+         * - Populates fee payer and recent blockhash, and/or
+         * - Signs with the client's `umbraWallet`, and/or
+         * - Forwards via either the `connectionBasedForwarder` or the configured `txForwarder`.
+         *
+         * The behavior is controlled by the `mode` option:
+         *
+         * - **Default / `'connection'` (recommended for most users)**
+         *   Signs the transaction with the client's `umbraWallet` and sends it via
          *   `connectionBasedForwarder`, returning a `SolanaTransactionSignature`.
-         * - `'forwarder'`: Signs with the client's `umbraWallet` and forwards via `txForwarder`,
-         *   returning the generic type `T`.
-         * - `'signed'`: Signs with the client's `umbraWallet` and returns the signed
-         *   `VersionedTransaction` without sending it.
-         * - `'prepared'`: Returns an unsigned `VersionedTransaction` with fee payer and recent
-         *   blockhash populated.
-         * - `'raw'`: Returns an unsigned `VersionedTransaction` built only from the instructions
-         *   with a placeholder blockhash; no real fee payer / blockhash setup is performed.
+         *
+         * - **`'forwarder'`**
+         *   Signs with the client's `umbraWallet` and forwards via `txForwarder`, returning the
+         *   generic type `T`. This is useful when using a relayer or custom forwarding strategy.
+         *
+         * - **`'signed'`**
+         *   Signs with the client's `umbraWallet` and returns the signed `VersionedTransaction`
+         *   without sending it. Use this when you want to control submission yourself.
+         *
+         * - **`'prepared'`**
+         *   Returns an unsigned `VersionedTransaction` with fee payer and recent blockhash
+         *   populated. Use this when the signing key is external (e.g. hardware wallet, mobile
+         *   signer) but you still want the client to prepare the transaction.
+         *
+         * - **`'raw'`**
+         *   Returns an unsigned `VersionedTransaction` built only from the instructions, with a
+         *   placeholder blockhash. No real fee payer / blockhash setup is performed, and the
+         *   caller is expected to update the message before signing and sending.
+         *
+         * In all modes, an Umbra wallet **must** be set on the client via {@link setUmbraWallet}.
+         *
+         * @example
+         * ```typescript
+         * // 1. Simple usage: sign and send via connectionBasedForwarder
+         * const client = UmbraClient.create('https://api.mainnet-beta.solana.com');
+         * await client.setUmbraWallet(signer);
+         *
+         * const optionalData: Sha3Hash = /* application-specific data *\/;
+         * const signature = await client.registerAccountForConfidentiality(optionalData);
+         * console.log('Transaction sent, signature:', signature);
+         * ```
+         *
+         * @example
+         * ```typescript
+         * // 2. Forward via a relayer / custom forwarder (generic T)
+         * type ForwardResponse = { signature: string; slot: number };
+         *
+         * const client = UmbraClient<ForwardResponse>.create(connection);
+         * client.txForwarder = await UmbraClient.getRandomRelayerForwarder();
+         * await client.setUmbraWallet(signer);
+         *
+         * const res = await client.registerAccountForConfidentiality(optionalData, {
+         *   mode: 'forwarder',
+         * });
+         * console.log('Forwarder response:', res.signature, 'at slot', res.slot);
+         * ```
+         *
+         * @example
+         * ```typescript
+         * // 3. Get a signed transaction but submit it manually
+         * const signedTx = await client.registerAccountForConfidentiality(optionalData, {
+         *   mode: 'signed',
+         * });
+         *
+         * // Send via a different connection or RPC strategy
+         * const rawSig = await someSolanaConnection.sendTransaction(signedTx);
+         * ```
+         *
+         * @example
+         * ```typescript
+         * // 4. Prepare an unsigned transaction for an external signer
+         * const preparedTx = await client.registerAccountForConfidentiality(optionalData, {
+         *   mode: 'prepared',
+         * });
+         *
+         * // Hand off to an external signer (e.g. hardware wallet)
+         * const externallySigned = await externalSigner.signTransaction(preparedTx);
+         * const sig = await someSolanaConnection.sendTransaction(externallySigned);
+         * ```
+         *
+         * @example
+         * ```typescript
+         * // 5. Build a raw transaction and fully customize it yourself
+         * const rawTx = await client.registerAccountForConfidentiality(optionalData, {
+         *   mode: 'raw',
+         * });
+         *
+         * // Replace blockhash / fee payer and then sign + send using your own logic
+         * ```
          */
         public async registerAccountForConfidentiality(
                 optionalData: Sha3Hash
@@ -606,6 +757,295 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         {
                                                 x25519PublicKey:
                                                         this.umbraWallet.arciumX25519PublicKey,
+                                                optionalData,
+                                        }
+                                )
+                        );
+                }
+
+                return { userPublicKey, instructions };
+        }
+
+        /**
+         * Registers the user's Umbra account for anonymity, including master viewing key registration,
+         * with flexible control over how the resulting transaction is signed and forwarded.
+         *
+         * @remarks
+         * This high-level method constructs the correct set of instructions to:
+         * - Initialise the Arcium-encrypted user account (if not already initialised)
+         * - Validate that the account is active (if already initialised)
+         * - Convert the account from MXE-encrypted form to shared form (if required),
+         *   using the client's Umbra wallet X25519 public key
+         * - Register the user's master viewing key and its blinding factors on-chain:
+         *   - Compute SHA-3 and Poseidon commitments to the master viewing key
+         *   - Encrypt the master viewing key and blinding factors using the MXE Rescue cipher
+         *   - Generate a Groth16 proof via the configured `zkProver`
+         *   - Submit an instruction to update the on-chain master viewing key state
+         *
+         * It then optionally:
+         * - Populates fee payer and recent blockhash, and/or
+         * - Signs with the client's `umbraWallet`, and/or
+         * - Forwards via either the `connectionBasedForwarder` or the configured `txForwarder`.
+         *
+         * The behavior is controlled by the `mode` option:
+         *
+         * - **Default / `'connection'` (recommended for most users)**
+         *   Signs the transaction with the client's `umbraWallet` and sends it via
+         *   `connectionBasedForwarder`, returning a `SolanaTransactionSignature`.
+         *
+         * - **`'forwarder'`**
+         *   Signs with the client's `umbraWallet` and forwards via `txForwarder`, returning the
+         *   generic type `T`. This is useful when using a relayer or custom forwarding strategy.
+         *
+         * - **`'signed'`**
+         *   Signs with the client's `umbraWallet` and returns the signed `VersionedTransaction`
+         *   without sending it. Use this when you want to control submission yourself.
+         *
+         * - **`'prepared'`**
+         *   Returns an unsigned `VersionedTransaction` with fee payer and recent blockhash
+         *   populated. Use this when the signing key is external (e.g. hardware wallet, mobile
+         *   signer) but you still want the client to prepare the transaction.
+         *
+         * - **`'raw'`**
+         *   Returns an unsigned `VersionedTransaction` built only from the instructions, with a
+         *   placeholder blockhash. No real fee payer / blockhash setup is performed, and the
+         *   caller is expected to update the message before signing and sending.
+         *
+         * In all modes, an Umbra wallet must be set on the client via {@link setUmbraWallet},
+         * and a ZK prover must be configured via `zkProver`.
+         */
+        public async registerAccountForAnonymity(
+                optionalData: Sha3Hash
+        ): Promise<SolanaTransactionSignature>;
+        public async registerAccountForAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'connection' }
+        ): Promise<SolanaTransactionSignature>;
+        public async registerAccountForAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'forwarder' }
+        ): Promise<T>;
+        public async registerAccountForAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async registerAccountForAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async registerAccountForAnonymity(
+                optionalData: Sha3Hash,
+                opts: { mode: 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async registerAccountForAnonymity(
+                optionalData: Sha3Hash,
+                opts?: { mode: 'connection' | 'forwarder' | 'signed' | 'prepared' | 'raw' }
+        ): Promise<SolanaTransactionSignature | T | VersionedTransaction> {
+                const mode = opts?.mode ?? 'connection';
+
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to register account for anonymity'
+                        );
+                }
+                if (!this.zkProver) {
+                        throw new UmbraClientError(
+                                'ZK prover is required to register account for anonymity'
+                        );
+                }
+
+                const { userPublicKey, instructions } =
+                        await this.buildRegisterAccountForAnonymityInstructions(optionalData);
+
+                if (mode === 'raw') {
+                        const rawMessage = new TransactionMessage({
+                                payerKey: userPublicKey,
+                                recentBlockhash: '11111111111111111111111111111111',
+                                instructions,
+                        }).compileToV0Message();
+
+                        return new VersionedTransaction(rawMessage);
+                }
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const preparedMessage = new TransactionMessage({
+                        payerKey: userPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions,
+                }).compileToV0Message();
+
+                const preparedTransaction = new VersionedTransaction(preparedMessage);
+
+                if (mode === 'prepared') {
+                        return preparedTransaction;
+                }
+
+                const signedTransaction =
+                        await this.umbraWallet.signTransaction(preparedTransaction);
+
+                if (mode === 'signed') {
+                        return signedTransaction;
+                }
+
+                if (mode === 'forwarder') {
+                        if (!this.txForwarder) {
+                                throw new UmbraClientError(
+                                        'No transaction forwarder configured on UmbraClient'
+                                );
+                        }
+                        return await this.txForwarder.forwardTransaction(signedTransaction);
+                }
+
+                return await this.connectionBasedForwarder.forwardTransaction(signedTransaction);
+        }
+
+        /**
+         * Internal helper that builds the instructions required to register the user's account
+         * for anonymity (including master viewing key registration), based on the current on-chain
+         * account state and the provided optional data.
+         *
+         * @internal
+         */
+        private async buildRegisterAccountForAnonymityInstructions(
+                optionalData: Sha3Hash
+        ): Promise<{
+                userPublicKey: SolanaAddress;
+                instructions: Array<TransactionInstruction>;
+        }> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Umbra wallet is required to register account for anonymity'
+                        );
+                }
+                if (!this.zkProver) {
+                        throw new UmbraClientError(
+                                'ZK prover is required to register account for anonymity'
+                        );
+                }
+
+                const userPublicKey = await this.umbraWallet.signer.getPublicKey();
+
+                const FLAG_BIT_FOR_IS_INITIALISED = 0;
+                const FLAG_BIT_FOR_IS_MXE_ENCRYPTED = 1;
+                const FLAG_BIT_FOR_HAS_REGISTERED_MASTER_VIEWING_KEY = 2;
+                const FLAG_BIT_FOR_IS_ACTIVE = 3;
+
+                const userArciumEncryptedAccountPda =
+                        getArciumEncryptedUserAccountPda(userPublicKey);
+                const userArciumEncryptedAccountData =
+                        await this.program.account.arciumEncryptedUserAccount.fetch(
+                                userArciumEncryptedAccountPda
+                        );
+
+                const instructions: Array<TransactionInstruction> = [];
+
+                if (
+                        !isBitSet(
+                                userArciumEncryptedAccountData.status[0],
+                                FLAG_BIT_FOR_IS_INITIALISED
+                        )
+                ) {
+                        instructions.push(
+                                await buildInitialiseArciumEncryptedUserAccountInstruction(
+                                        {
+                                                destinationAddress: userPublicKey,
+                                                signer: userPublicKey,
+                                        },
+                                        {
+                                                optionalData,
+                                        }
+                                )
+                        );
+                } else if (
+                        !isBitSet(userArciumEncryptedAccountData.status[0], FLAG_BIT_FOR_IS_ACTIVE)
+                ) {
+                        throw new UmbraClientError('User account is not active');
+                }
+
+                if (
+                        isBitSet(
+                                userArciumEncryptedAccountData.status[0],
+                                FLAG_BIT_FOR_IS_MXE_ENCRYPTED
+                        )
+                ) {
+                        instructions.push(
+                                await buildConvertUserAccountFromMxeToSharedInstruction(
+                                        {
+                                                arciumSigner: userPublicKey,
+                                        },
+                                        {
+                                                x25519PublicKey:
+                                                        this.umbraWallet.arciumX25519PublicKey,
+                                                optionalData,
+                                        }
+                                )
+                        );
+                }
+
+                const masterViewingKey = this.umbraWallet.masterViewingKey;
+                const masterViewingKeyPoseidonBlindingFactor =
+                        this.umbraWallet.masterViewingKeyPoseidonBlindingFactor;
+                const masterViewingKeySha3BlindingFactor =
+                        this.umbraWallet.masterViewingKeySha3BlindingFactor;
+
+                const masterViewingKeySha3Commitment = sha3_256(
+                        Uint8Array.from([
+                                ...convertU128ToBeBytes(masterViewingKey),
+                                ...convertU128ToBeBytes(masterViewingKeySha3BlindingFactor),
+                        ]).reverse()
+                ) as U256BeBytes;
+
+                const masterViewingKeySha3CommitmentLeBytes = Uint8Array.from(
+                        masterViewingKeySha3Commitment
+                ).reverse() as U256LeBytes;
+
+                const masterViewingKeyHash = PoseidonHasher.hash([
+                        masterViewingKey,
+                        masterViewingKeyPoseidonBlindingFactor,
+                ]);
+
+                const aggregatedSha3Hash = aggregateSha3HashIntoSinglePoseidonRoot(
+                        masterViewingKeySha3CommitmentLeBytes
+                );
+
+                const [ciphertexts, nonce] = await this.umbraWallet.rescueCiphers
+                        .get(MXE_ARCIUM_X25519_PUBLIC_KEY)!
+                        .encrypt([masterViewingKey, masterViewingKeySha3BlindingFactor])!;
+
+                const [proofA, proofB, proofC] =
+                        await this.zkProver.generateMasterViewingKeyRegistrationProof(
+                                masterViewingKey,
+                                masterViewingKeyPoseidonBlindingFactor,
+                                masterViewingKeySha3BlindingFactor,
+                                masterViewingKeyHash,
+                                aggregatedSha3Hash
+                        );
+
+                if (
+                        !isBitSet(
+                                userArciumEncryptedAccountData.status[0],
+                                FLAG_BIT_FOR_HAS_REGISTERED_MASTER_VIEWING_KEY
+                        )
+                ) {
+                        instructions.push(
+                                await buildUpdateMasterViewingKeyInstruction(
+                                        {
+                                                payer: userPublicKey,
+                                                arciumSigner: userPublicKey,
+                                        },
+                                        {
+                                                masterViewingKeyCiphertext: ciphertexts[0]!,
+                                                masterViewingKeyBlindingFactor: ciphertexts[1]!,
+                                                masterViewingKeyNonce: nonce,
+                                                masterViewingKeyShaCommitment:
+                                                        masterViewingKeySha3CommitmentLeBytes,
+                                                masterViewingKeyHash,
+                                                proofA,
+                                                proofB,
+                                                proofC,
                                                 optionalData,
                                         }
                                 )

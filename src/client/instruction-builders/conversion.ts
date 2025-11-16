@@ -123,7 +123,6 @@ export async function buildUpdateMasterViewingKeyInstruction(
                 arciumSigner: SolanaAddress;
         },
         txArgs: {
-                masterViewingKey: PoseidonHash;
                 masterViewingKeyCiphertext: RescueCiphertext;
                 masterViewingKeyBlindingFactor: RescueCiphertext;
                 masterViewingKeyNonce: ArciumX25519Nonce;

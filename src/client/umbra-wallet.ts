@@ -176,6 +176,33 @@ export class UmbraWallet {
         public readonly masterViewingKey: U128;
 
         /**
+         * Blinding factor associated with the master viewing key.
+         *
+         * @remarks
+         * The blinding factor is a second 128-bit value derived from the same master signature
+         * seed as the master viewing key, but using a distinct domain separator. It is intended
+         * to be used as a randomness source in constructions that involve the master viewing key
+         * (for example, commitments, randomized encodings, or proof systems) so that the raw
+         * viewing key never needs to be used directly.
+         *
+         * Keeping the viewing key and its blinding factor separate allows higher-level protocols
+         * to combine them in different ways without reusing the same derived value across
+         * multiple cryptographic contexts.
+         */
+        public readonly masterViewingKeyPoseidonBlindingFactor: U128;
+
+        /**
+         * SHA-3 specific blinding factor associated with the master viewing key.
+         *
+         * @remarks
+         * This 128-bit value is derived from the same master signature seed using a distinct
+         * "Master Viewing Key Sha3 Blinding Factor" domain separator. It is intended to be used
+         * anywhere SHA-3–based commitments or hashes depend on the master viewing key, so that
+         * Poseidon- and SHA-3–based constructions never reuse the exact same blinding material.
+         */
+        public readonly masterViewingKeySha3BlindingFactor: U128;
+
+        /**
          * Function to get or create a Rescue cipher for a given X25519 public key.
          *
          * @param publicKey - The X25519 public key to create a cipher for
@@ -205,7 +232,9 @@ export class UmbraWallet {
                 signer: ISigner,
                 arciumX25519PublicKey: ArciumX25519PublicKey,
                 getRescueCipherForPublicKey: (publicKey: ArciumX25519PublicKey) => RescueCipher,
-                masterViewingKey: U128
+                masterViewingKey: U128,
+                masterViewingKeyPoseidonBlindingFactor: U128,
+                masterViewingKeySha3BlindingFactor: U128
         ) {
                 this.signer = signer;
                 this.arciumX25519PublicKey = arciumX25519PublicKey;
@@ -217,6 +246,9 @@ export class UmbraWallet {
                         this.getRescueCipherForPublicKey(MXE_ARCIUM_X25519_PUBLIC_KEY)
                 );
                 this.masterViewingKey = masterViewingKey;
+                this.masterViewingKeyPoseidonBlindingFactor =
+                        masterViewingKeyPoseidonBlindingFactor;
+                this.masterViewingKeySha3BlindingFactor = masterViewingKeySha3BlindingFactor;
         }
 
         /**
@@ -259,6 +291,16 @@ export class UmbraWallet {
                                         masterSignatureSeed
                                 );
 
+                        const masterViewingKeyPoseidonBlindingFactor =
+                                this.generateMasterViewingKeyBlindingFactorFromMasterSignatureSeed(
+                                        masterSignatureSeed
+                                );
+
+                        const masterViewingKeySha3BlindingFactor =
+                                this.generateMasterViewingKeySha3BlindingFactorFromMasterSignatureSeed(
+                                        masterSignatureSeed
+                                );
+
                         const getRescueCipherForPublicKey = (publicKey: ArciumX25519PublicKey) => {
                                 const rescueCipher = RescueCipher.fromX25519Pair(
                                         x25519PrivateKey,
@@ -271,7 +313,9 @@ export class UmbraWallet {
                                 signer,
                                 x25519PublicKey,
                                 getRescueCipherForPublicKey,
-                                masterViewingKey
+                                masterViewingKey,
+                                masterViewingKeyPoseidonBlindingFactor,
+                                masterViewingKeySha3BlindingFactor
                         );
                 } catch (error) {
                         if (error instanceof SignerError) {
@@ -361,6 +405,75 @@ export class UmbraWallet {
                         MASTER_VIEWING_KEY_DOMAIN_SEPARATOR
                 ) as U128BeBytes;
                 return convertU128BeBytesToU128(masterViewingKeyBeBytes);
+        }
+
+        /**
+         * Derives a SHA-3-specific blinding factor for the master viewing key from a master signature seed.
+         *
+         * @param masterSignatureSeed - The master signature seed (64-byte signature)
+         * @returns A 128-bit blinding factor (U128) for use with SHA-3–based commitments
+         *
+         * @remarks
+         * This method derives a 128-bit value using KMAC128 with the domain separator
+         * "Umbra Privacy - Master Viewing Key Sha3 Blinding Factor". It is computed from
+         * the same master signature seed as the master viewing key and Poseidon blinding factor,
+         * but uses a distinct label so that SHA-3–based and Poseidon-based constructions never
+         * reuse the exact same randomness.
+         *
+         * Use this factor anywhere you need per-user randomness in SHA-3 commitments or hashes
+         * that are tied to the master viewing key, without exposing the viewing key itself.
+         */
+        public static generateMasterViewingKeySha3BlindingFactorFromMasterSignatureSeed(
+                masterSignatureSeed: Uint8Array
+        ): U128 {
+                const MASTER_VIEWING_KEY_SHA3_BLINDING_FACTOR_DOMAIN_SEPARATOR =
+                        new TextEncoder().encode(
+                                'Umbra Privacy - Master Viewing Key Sha3 Blinding Factor'
+                        );
+                const masterViewingKeySha3BlindingFactorBeBytes = kmac128(
+                        masterSignatureSeed,
+                        MASTER_VIEWING_KEY_SHA3_BLINDING_FACTOR_DOMAIN_SEPARATOR
+                ) as U128BeBytes;
+                return convertU128BeBytesToU128(masterViewingKeySha3BlindingFactorBeBytes);
+        }
+
+        /**
+         * Derives a blinding factor for the master viewing key from a master signature seed.
+         *
+         * @param masterSignatureSeed - The master signature seed (64-byte signature)
+         * @returns A 128-bit blinding factor (U128) for use alongside the master viewing key
+         *
+         * @remarks
+         * This method derives a second 128-bit value using KMAC128 with a dedicated domain
+         * separator "Umbra Privacy - Master Viewing Key Blinding Factor". It is computed from
+         * the same master signature seed as the master viewing key, but with a different
+         * derivation label so that:
+         *
+         * - The blinding factor is **cryptographically independent** from the master viewing key
+         * - The viewing key never needs to be reused directly as randomness in other schemes
+         *
+         * Typical uses include:
+         * - Adding noise/randomness to commitments that depend on the master viewing key
+         * - Generating per-user randomness in zero-knowledge proofs or encrypted metadata
+         *
+         * @example
+         * ```typescript
+         * const blindingFactor =
+         *   UmbraWallet.generateMasterViewingKeyBlindingFactorFromMasterSignatureSeed(signatureSeed);
+         * ```
+         */
+        public static generateMasterViewingKeyBlindingFactorFromMasterSignatureSeed(
+                masterSignatureSeed: Uint8Array
+        ): U128 {
+                const MASTER_VIEWING_KEY_BLINDING_FACTOR_DOMAIN_SEPARATOR =
+                        new TextEncoder().encode(
+                                'Umbra Privacy - Master Viewing Key Blinding Factor'
+                        );
+                const masterViewingKeyBlindingFactorBeBytes = kmac128(
+                        masterSignatureSeed,
+                        MASTER_VIEWING_KEY_BLINDING_FACTOR_DOMAIN_SEPARATOR
+                ) as U128BeBytes;
+                return convertU128BeBytesToU128(masterViewingKeyBlindingFactorBeBytes);
         }
 
         /**

@@ -1,8 +1,8 @@
-import { BeBytes, LeBytes, U128 } from '@/types/common';
+import { BeBytes, U128, U256LeBytes } from '@/types/common';
 import BN from 'bn.js';
 
-export type PoseidonHash = LeBytes;
-export type Sha3Hash = LeBytes;
+export type PoseidonHash = U256LeBytes;
+export type Sha3Hash = U256LeBytes;
 export type ZkMerkleTreeInsertionIndex = U128;
 export type Groth16ProofABeBytes = BeBytes;
 export type Groth16ProofBBeBytes = BeBytes;

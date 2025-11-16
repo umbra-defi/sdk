@@ -1,8 +1,8 @@
 import { poseidon as createPoseidon, splitConstants } from '@noble/curves/abstract/poseidon.js';
 import { bn254_Fr as Fr } from '@noble/curves/bn254.js';
-import { PoseidonHash } from '@/types/cryptography';
+import { PoseidonHash, Sha3Hash } from '@/types/cryptography';
 import { ROUNDS_FULL, ROUNDS_PARTIAL, SBOX_POWER, POSEIDON_CONSTANTS } from '@/constants/poseidon';
-import { convertBigIntToLeBytes } from './convertors';
+import { convertBigIntToLeBytes, convertU256LeBytesToU256 } from '@/utils/convertors';
 
 /**
  * Abstract base class for all Poseidon hasher-related errors.
@@ -294,6 +294,90 @@ export class PoseidonHasher {
                 const state = poseidon([initState, ...inputs]);
                 const hashValue = state[0]!;
 
-                return convertBigIntToLeBytes(hashValue, 32) as PoseidonHash;
+                return convertBigIntToLeBytes(hashValue, 32) as unknown as PoseidonHash;
         }
+}
+
+/**
+ * Aggregates multiple Poseidon hashes into a single root by hashing them together.
+ *
+ * @param hashes - Array of Poseidon hashes to aggregate.
+ * @returns A single Poseidon hash representing the aggregated value.
+ *
+ * @internal
+ */
+function aggregatePoseidonHashes(hashes: Array<PoseidonHash>): PoseidonHash {
+        const inputs = hashes.map((h) => convertU256LeBytesToU256(h));
+        return PoseidonHasher.hash(inputs);
+}
+
+/**
+ * Aggregates a 32-byte SHA-3 hash into a single Poseidon root using a bit-level encoding
+ * compatible with Circom circuits.
+ *
+ * @remarks
+ * The aggregation procedure:
+ * 1. Validates that the input is a 32-byte `Uint8Array` (`Sha3Hash`).
+ * 2. Reverses the byte order to match the endianness expected by the bit unpacking logic.
+ * 3. Expands the 32 bytes into 256 bits (LSB-first per byte).
+ * 4. Splits the 256 bits into 22 groups: 21 groups of 12 bits, followed by 1 group of 4 bits.
+ * 5. For each group, computes an intermediate Poseidon hash over the bits (0/1 as field elements).
+ * 6. Aggregates the 22 intermediate hashes with a two-level Poseidon tree:
+ *    - `firstBatchHash = Poseidon.hash(intermediate[0..10])`
+ *    - `secondBatchHash = Poseidon.hash(intermediate[11..21])`
+ *    - `root = Poseidon.hash([firstBatchHash, secondBatchHash])`
+ *
+ * This produces a single `PoseidonHash` that can be fed into Poseidon-based ZK circuits,
+ * while the original commitment is computed using SHA-3.
+ *
+ * @param sha3Hash - A 32-byte SHA-3 hash (`Sha3Hash`) to aggregate.
+ * @returns A single `PoseidonHash` representing the aggregated SHA-3 commitment.
+ *
+ * @throws {TypeError} If the input is not a 32-byte `Uint8Array`.
+ * @throws {@link PoseidonHasherError} If any underlying Poseidon hashing operation fails.
+ */
+export function aggregateSha3HashIntoSinglePoseidonRoot(sha3Hash: Sha3Hash): PoseidonHash {
+        if (!(sha3Hash instanceof Uint8Array) || sha3Hash.length !== 32) {
+                throw new TypeError(
+                        'aggregateSha3HashIntoSinglePoseidonRoot expects a 32-byte Uint8Array.'
+                );
+        }
+
+        // Sha3Hash is stored as U256LeBytes; reverse to interpret it in the same
+        // bit order as the original Keccak-based implementation.
+        const hash = new Uint8Array(sha3Hash);
+        hash.reverse();
+
+        const bits: number[] = new Array(256);
+        for (let byteIdx = 0; byteIdx < hash.length; byteIdx += 1) {
+                const byte = hash[byteIdx]!;
+                for (let bitIdx = 0; bitIdx < 8; bitIdx += 1) {
+                        const globalBitIdx = byteIdx * 8 + bitIdx;
+                        bits[globalBitIdx] = (byte >> bitIdx) & 1;
+                }
+        }
+
+        // 21 groups of 12 bits and a final group of 4 bits → 21*12 + 4 = 256
+        const groupSizes: number[] = [...Array(21).fill(12), 4];
+        const intermediateHashes: PoseidonHash[] = [];
+
+        let offset = 0;
+        for (const size of groupSizes) {
+                const groupBits = bits.slice(offset, offset + size);
+                offset += size;
+
+                const inputs = groupBits.map((b) => BigInt(b));
+                intermediateHashes.push(PoseidonHasher.hash(inputs));
+        }
+
+        if (offset !== 256) {
+                throw new PoseidonInputError(
+                        `Internal error: expected to consume 256 bits, consumed ${offset}`
+                );
+        }
+
+        const firstBatchHash = aggregatePoseidonHashes(intermediateHashes.slice(0, 11));
+        const secondBatchHash = aggregatePoseidonHashes(intermediateHashes.slice(11, 22));
+
+        return aggregatePoseidonHashes([firstBatchHash, secondBatchHash]);
 }

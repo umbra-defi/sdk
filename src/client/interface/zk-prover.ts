@@ -113,7 +113,7 @@ export abstract class IZkProver {
                 poseidonBlindingFactor: U128,
                 sha3BlindingFactor: U128,
                 expectedPoseidonCommitment: PoseidonHash,
-                expectedSha3Commitment: Sha3Hash
+                expectedSha3Commitment: PoseidonHash
         ): Promise<[Groth16ProofABeBytes, Groth16ProofBBeBytes, Groth16ProofCBeBytes]>;
 
         /**

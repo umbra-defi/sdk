@@ -64,7 +64,7 @@ export function getNullifierHashPda(nullifierHash: PoseidonHash): ProgramDerived
                 return PublicKey.findProgramAddressSync(
                         [
                                 Buffer.from(NULLIFIER_HASH_PDA_SEED),
-                                convertLeBytesToBuffer(nullifierHash),
+                                convertLeBytesToBuffer(nullifierHash as unknown as LeBytes),
                         ],
                         program.programId
                 )[0] as ProgramDerivedAddress;
