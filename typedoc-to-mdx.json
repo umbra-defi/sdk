@@ -1,0 +1,7 @@
+{
+        "typedoc": "./typedoc.json",
+        "tsconfig": "./tsconfig.typedoc.json",
+        "outDir": "./docs-mdx",
+        "cleanOutputDir": true
+}
+

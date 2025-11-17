@@ -1,1 +1,10 @@
-
+export * as AccountInitialisationInstructions from './account-initialisation';
+export * as ComplianceInstructions from './compliance';
+export * as ConversionInstructions from './conversion';
+export * as DepositInstructions from './deposit';
+export * as FeeInstructions from './fees';
+export * as FreezingInstructions from './freezing';
+export * as GlobalInstructions from './global';
+export * as RelayerInstructions from './relayer';
+export * as TransferInstructions from './transfer';
+export * as WithdrawalInstructions from './withdraw';

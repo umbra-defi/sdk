@@ -1,0 +1,14 @@
+{
+        "$schema": "https://typedoc.org/schema.json",
+        "tsconfig": "tsconfig.typedoc.json",
+        "entryPoints": ["src/index.ts"],
+        "entryPointStrategy": "resolve",
+        "plugin": ["typedoc-plugin-markdown"],
+        "out": "docs-mdx",
+        "fileExtension": ".mdx",
+        "hideBreadcrumbs": true,
+        "hidePageTitle": true,
+        "navigationLinks": {},
+        "readme": "none"
+}
+

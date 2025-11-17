@@ -1,0 +1,996 @@
+{
+	"schemaVersion": "2.0",
+	"id": 0,
+	"name": "client",
+	"variant": "project",
+	"kind": 1,
+	"flags": {},
+	"packageName": "client",
+	"readme": [
+		{
+			"kind": "text",
+			"text": "## Umbra SDK (Solana / Arcium Privacy Client)\n\nThe **Umbra SDK** is a TypeScript library that provides a high–level client for interacting with the\nUmbra Privacy protocol on Solana, including its Arcium Multi‑Execution Environment (MXE) components.\nIt wraps low‑level on‑chain programs, cryptographic primitives, and MXE flows behind a small number\nof composable, well‑typed classes:\n\n- "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraClient`"
+		},
+		{
+			"kind": "text",
+			"text": ": High–level façade for all on‑chain operations.\n- "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraWallet`"
+		},
+		{
+			"kind": "text",
+			"text": ": Key‑management, encryption, and viewing‑key utilities.\n- "
+		},
+		{
+			"kind": "code",
+			"text": "`RelayerForwarder`"
+		},
+		{
+			"kind": "text",
+			"text": " / "
+		},
+		{
+			"kind": "code",
+			"text": "`ConnectionBasedForwarder`"
+		},
+		{
+			"kind": "text",
+			"text": ": Transaction forwarding strategies.\n- "
+		},
+		{
+			"kind": "code",
+			"text": "`WasmZkProver`"
+		},
+		{
+			"kind": "text",
+			"text": ": WASM + snarkjs‑based Groth16 prover implementation.\n\nThis SDK is intended to be embedded in wallets, dApps, and backend services that:\n\n- Register and manage Umbra/Arcium encrypted user accounts.\n- Generate and verify zero‑knowledge proofs for anonymity features.\n- Deposit to and withdraw from privacy‑preserving mixer pools (SOL and SPL).\n- Work with encrypted balances, viewing keys, and Rescue/Poseidon/SHA‑3 based commitments.\n\nThe library is written in **TypeScript**, built with **tsup**, and exports both **ESM** and **CJS**\nbundles plus full type declarations.\n\n---\n\n## Installation\n\nInstall via your preferred package manager (pnpm is used in this repository):\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```bash\npnpm add umbra-sdk-version\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\nor, if you’re working directly in this repository:\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```bash\npnpm install\npnpm build\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\nThe build step uses "
+		},
+		{
+			"kind": "code",
+			"text": "`tsup`"
+		},
+		{
+			"kind": "text",
+			"text": " to emit:\n\n- "
+		},
+		{
+			"kind": "code",
+			"text": "`dist/index.mjs`"
+		},
+		{
+			"kind": "text",
+			"text": " – ESM entrypoint\n- "
+		},
+		{
+			"kind": "code",
+			"text": "`dist/index.cjs`"
+		},
+		{
+			"kind": "text",
+			"text": " – CommonJS entrypoint\n- "
+		},
+		{
+			"kind": "code",
+			"text": "`dist/index.d.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – TypeScript declarations\n\nThe "
+		},
+		{
+			"kind": "code",
+			"text": "`package.json`"
+		},
+		{
+			"kind": "text",
+			"text": " "
+		},
+		{
+			"kind": "code",
+			"text": "`exports`"
+		},
+		{
+			"kind": "text",
+			"text": " map is configured so that Node, bundlers, and TypeScript all resolve the\ncorrect variant automatically.\n\n---\n\n## Project Structure\n\nHigh‑level layout:\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```text\nsrc/\n  client/\n    implementation/\n      connection-based-forwarder.ts\n      relayer-forwarder.ts\n      rescue-cipher.ts\n      wasm-zk-prover.ts\n    instruction-builders/\n      account-initialisation.ts\n      compliance.ts\n      conversion.ts\n      deposit.ts\n      fees.ts\n      freezing.ts\n      global.ts\n      relayer.ts\n      transfer.ts\n      withdraw.ts\n    interface/\n      index.ts\n      signer.ts\n      transaction-forwarder.ts\n      zk-prover.ts\n    umbra-client.ts\n    umbra-wallet.ts\n    index.ts\n  constants/\n  idl/\n  types/\n  utils/\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n### "
+		},
+		{
+			"kind": "code",
+			"text": "`src/client/`"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`umbra-client.ts`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - Main entrypoint for consumers.\n  - Holds:\n    - "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraClient`"
+		},
+		{
+			"kind": "text",
+			"text": " – typed around a generic transaction-forwarder result "
+		},
+		{
+			"kind": "code",
+			"text": "`T`"
+		},
+		{
+			"kind": "text",
+			"text": ".\n    - Methods for:\n      - Registering accounts for **confidentiality** and/or **anonymity** (with multiple “modes”:\n        "
+		},
+		{
+			"kind": "code",
+			"text": "`connection`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`forwarder`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`signed`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`prepared`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`raw`"
+		},
+		{
+			"kind": "text",
+			"text": ").\n      - Generating and submitting ZK proofs (via an injected "
+		},
+		{
+			"kind": "code",
+			"text": "`IZkProver`"
+		},
+		{
+			"kind": "text",
+			"text": ").\n      - Depositing publicly into mixer pools (SOL / SPL).\n      - Fetching encrypted token balances.\n    - Pluggable components:\n      - "
+		},
+		{
+			"kind": "code",
+			"text": "`umbraWallet?: UmbraWallet`"
+		},
+		{
+			"kind": "text",
+			"text": "\n      - "
+		},
+		{
+			"kind": "code",
+			"text": "`txForwarder?: ITransactionForwarder<T>`"
+		},
+		{
+			"kind": "text",
+			"text": "\n      - "
+		},
+		{
+			"kind": "code",
+			"text": "`connectionBasedForwarder: ConnectionBasedForwarder`"
+		},
+		{
+			"kind": "text",
+			"text": "\n      - "
+		},
+		{
+			"kind": "code",
+			"text": "`zkProver: IZkProver`"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`umbra-wallet.ts`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - Represents a user’s Umbra wallet, derived from a Solana signer.\n  - Responsibilities:\n    - Deriving **master viewing keys** and associated **Poseidon / SHA‑3 blinding factors**.\n    - Managing Rescue ciphers keyed by X25519 public keys.\n    - Generating deterministic **nullifiers** and **random secrets** using KMAC‑based derivations.\n    - Computing linker hashes for mixer deposits based on time and destination.\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`implementation/`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`connection-based-forwarder.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – Sends transactions directly via a "
+		},
+		{
+			"kind": "code",
+			"text": "`Connection`"
+		},
+		{
+			"kind": "text",
+			"text": ".\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`relayer-forwarder.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – Forwards signed transactions to a relayer / external service.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`rescue-cipher.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – Thin wrapper around Rescue encryption primitives.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`wasm-zk-prover.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – "
+		},
+		{
+			"kind": "code",
+			"text": "`WasmZkProver`"
+		},
+		{
+			"kind": "text",
+			"text": " implementation of "
+		},
+		{
+			"kind": "code",
+			"text": "`IZkProver`"
+		},
+		{
+			"kind": "text",
+			"text": " using "
+		},
+		{
+			"kind": "code",
+			"text": "`snarkjs.groth16`"
+		},
+		{
+			"kind": "text",
+			"text": ",\n    lazily loading circuit artifacts and converting inputs/outputs to the required formats.\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`instruction-builders/`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - One file per logical instruction family (account initialisation, conversion, deposits, fees,\n    withdrawals, etc.).\n  - Each builder:\n    - Derives PDAs and Arcium account offsets.\n    - Prepares typed arguments for Anchor/IDL methods.\n    - Returns a "
+		},
+		{
+			"kind": "code",
+			"text": "`TransactionInstruction`"
+		},
+		{
+			"kind": "text",
+			"text": ", not a full transaction.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`umbra-client`"
+		},
+		{
+			"kind": "text",
+			"text": " composes these instructions into "
+		},
+		{
+			"kind": "code",
+			"text": "`VersionedTransaction`"
+		},
+		{
+			"kind": "text",
+			"text": "s.\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`interface/`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`signer.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – Defines the "
+		},
+		{
+			"kind": "code",
+			"text": "`ISigner`"
+		},
+		{
+			"kind": "text",
+			"text": " abstraction used by "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraClient`"
+		},
+		{
+			"kind": "text",
+			"text": " / "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraWallet`"
+		},
+		{
+			"kind": "text",
+			"text": ".\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`transaction-forwarder.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – "
+		},
+		{
+			"kind": "code",
+			"text": "`ITransactionForwarder<T>`"
+		},
+		{
+			"kind": "text",
+			"text": " for forwarding strategy injection.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`zk-prover.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – "
+		},
+		{
+			"kind": "code",
+			"text": "`IZkProver`"
+		},
+		{
+			"kind": "text",
+			"text": " interface to allow multiple prover backends ("
+		},
+		{
+			"kind": "code",
+			"text": "`WasmZkProver`"
+		},
+		{
+			"kind": "text",
+			"text": ",\n    future RapidSnark implementations, etc.).\n\n### "
+		},
+		{
+			"kind": "code",
+			"text": "`src/constants/`"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n- Protocol constants and pre‑computed values:\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`anchor.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – Anchor/IDL‑related constants (e.g. "
+		},
+		{
+			"kind": "code",
+			"text": "`WSOL_MINT_ADDRESS`"
+		},
+		{
+			"kind": "text",
+			"text": ").\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`arcium.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – Arcium‑specific configuration.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`poseidon_constants.json`"
+		},
+		{
+			"kind": "text",
+			"text": " / "
+		},
+		{
+			"kind": "code",
+			"text": "`poseidon.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – Poseidon hash parameters.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`zk.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – ZK circuit identifiers and configuration.\n\n### "
+		},
+		{
+			"kind": "code",
+			"text": "`src/idl/`"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n- Contains the Anchor IDL and program type definitions:\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`idl.json`"
+		},
+		{
+			"kind": "text",
+			"text": " – Full generated IDL of the Umbra program.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`idl.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – TypeScript binding for the IDL.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`index.ts`"
+		},
+		{
+			"kind": "text",
+			"text": " – Convenience re‑exports.\n\n### "
+		},
+		{
+			"kind": "code",
+			"text": "`src/types/`"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n- Branded types for:\n  - Cryptographic primitives ("
+		},
+		{
+			"kind": "code",
+			"text": "`U128`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`U256`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`PoseidonHash`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`Sha3Hash`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`RescueCiphertext`"
+		},
+		{
+			"kind": "text",
+			"text": ", etc.).\n  - Solana–specific concepts ("
+		},
+		{
+			"kind": "code",
+			"text": "`SolanaAddress`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`SolanaTransactionSignature`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`MintAddress`"
+		},
+		{
+			"kind": "text",
+			"text": ").\n  - Arcium / MXE concepts ("
+		},
+		{
+			"kind": "code",
+			"text": "`ArciumX25519PublicKey`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`ArciumX25519Nonce`"
+		},
+		{
+			"kind": "text",
+			"text": ", offsets, time components).\n- Strong typing here is used throughout the client to prevent mixing incompatible values.\n\n### "
+		},
+		{
+			"kind": "code",
+			"text": "`src/utils/`"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`miscellaneous.ts`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - Utility helpers like "
+		},
+		{
+			"kind": "code",
+			"text": "`isBitSet`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`generateRandomU256`"
+		},
+		{
+			"kind": "text",
+			"text": ", and "
+		},
+		{
+			"kind": "code",
+			"text": "`breakPublicKeyIntoTwoParts`"
+		},
+		{
+			"kind": "text",
+			"text": ".\n  - These are heavily documented with JSDoc and examples.\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`convertors.ts`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - Conversions between "
+		},
+		{
+			"kind": "code",
+			"text": "`bigint`"
+		},
+		{
+			"kind": "text",
+			"text": " and branded byte types ("
+		},
+		{
+			"kind": "code",
+			"text": "`BeBytes`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`LeBytes`"
+		},
+		{
+			"kind": "text",
+			"text": ").\n  - Helpers for U128/U256, transaction input types, and decimal string ↔ "
+		},
+		{
+			"kind": "code",
+			"text": "`bigint`"
+		},
+		{
+			"kind": "text",
+			"text": ".\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`hasher.ts`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - Poseidon hashing helpers, including aggregation functions:\n    - "
+		},
+		{
+			"kind": "code",
+			"text": "`aggregateSha3HashIntoSinglePoseidonRoot`"
+		},
+		{
+			"kind": "text",
+			"text": " – bit‑level processing + two‑layer Poseidon tree.\n  - Wraps Poseidon parameters from "
+		},
+		{
+			"kind": "code",
+			"text": "`constants/poseidon_*`"
+		},
+		{
+			"kind": "text",
+			"text": ".\n\n- **"
+		},
+		{
+			"kind": "code",
+			"text": "`pda-generators.ts`"
+		},
+		{
+			"kind": "text",
+			"text": "**\n  - Functions to derive program‑derived addresses (PDAs) for:\n    - Arcium encrypted user accounts.\n    - Encrypted token accounts.\n    - Fees/commission pools, nullifier accounts, etc.\n  - Each helper throws a typed "
+		},
+		{
+			"kind": "code",
+			"text": "`PdaGenerationError`"
+		},
+		{
+			"kind": "text",
+			"text": " on failure.\n\n---\n\n## Building & Type‑Checking\n\n- **Build (ESM + CJS + dts)**:\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```bash\npnpm build\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n- **Watch mode (for local development)**:\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```bash\npnpm build:watch\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n- **Type‑check only**:\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```bash\npnpm type-check\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n---\n\n## Basic Usage\n\nBelow is a simplified example that:\n\n1. Creates an "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraClient`"
+		},
+		{
+			"kind": "text",
+			"text": " with a connection.\n2. Attaches an "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraWallet`"
+		},
+		{
+			"kind": "text",
+			"text": ".\n3. Configures a WASM ZK prover.\n4. Registers the account for anonymity.\n5. Deposits SOL into the mixer via the unified helper.\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```ts\nimport { Connection, Keypair } from '@solana/web3.js';\nimport { UmbraClient } from '@/client';\nimport { UmbraWallet } from '@/client/umbra-wallet';\nimport { WasmZkProver } from '@/client/implementation/wasm-zk-prover';\nimport { MXE_ARCIUM_X25519_PUBLIC_KEY } from '@/constants';\n\nasync function main() {\n  // 1. Create a Solana connection\n  const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');\n\n  // 2. Create a signer and Umbra wallet\n  const keypair = Keypair.generate();\n  const wallet = await UmbraWallet.fromSigner({ signer: { keypair } }, {\n    // UmbraWallet-specific options, e.g. MXE ciphers\n    arciumX25519PublicKey: MXE_ARCIUM_X25519_PUBLIC_KEY,\n  });\n\n  // 3. Create the client and configure zk prover + wallet\n  const client = await UmbraClient.create({\n    connection,\n  });\n\n  client.setUmbraWallet(wallet);\n  client.setZkProver(\n    'wasm',\n    {\n      masterViewingKeyRegistration: true,\n      createSplDepositWithPublicAmount: true,\n      // ...enable other circuits as needed\n    },\n  );\n\n  // 4. Register account for anonymity (via connection)\n  const optionalData = /* some Sha3Hash optional data */ undefined as any;\n  const signature = await client.registerAccountForAnonymity(optionalData, {\n    mode: 'connection',\n  });\n  console.log('Register anonymity tx signature:', signature);\n\n  // 5. Deposit 1 SOL into the mixer, using the unified helper\n  const oneSol = 1_000_000_000n as any; // Amount branded as `Amount`\n  const destination = await wallet.signer.getPublicKey();\n  const wsolMint = /* WSOL mint address as MintAddress */ undefined as any;\n\n  const solDepositResult = await client.depositPublicallyIntoMixerPool(\n    oneSol,\n    destination,\n    wsolMint,\n    { mode: 'forwarder' }, // or 'connection' / 'signed' / 'prepared' / 'raw'\n  );\n\n  console.log('SOL deposit result:', solDepositResult);\n}\n\nmain().catch(console.error);\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n> **Note**\n> The concrete branded types ("
+		},
+		{
+			"kind": "code",
+			"text": "`Amount`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`MintAddress`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`Sha3Hash`"
+		},
+		{
+			"kind": "text",
+			"text": ", etc.) come from "
+		},
+		{
+			"kind": "code",
+			"text": "`src/types`"
+		},
+		{
+			"kind": "text",
+			"text": ". In a\n> packaged SDK you will typically import them from the root module.\n\n---\n\n## Design Notes\n\n- **Strong typing & branded types**\n  The SDK uses branded types to avoid accidentally mixing incompatible values\n  (e.g. "
+		},
+		{
+			"kind": "code",
+			"text": "`PoseidonHash`"
+		},
+		{
+			"kind": "text",
+			"text": " vs "
+		},
+		{
+			"kind": "code",
+			"text": "`Sha3Hash`"
+		},
+		{
+			"kind": "text",
+			"text": ", or "
+		},
+		{
+			"kind": "code",
+			"text": "`U128`"
+		},
+		{
+			"kind": "text",
+			"text": " vs "
+		},
+		{
+			"kind": "code",
+			"text": "`U256`"
+		},
+		{
+			"kind": "text",
+			"text": "). This improves both safety and\n  self‑documentation.\n\n- **Mode‑based transaction handling**\n  Most high‑level methods support:\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`connection`"
+		},
+		{
+			"kind": "text",
+			"text": " – sign with "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraWallet`"
+		},
+		{
+			"kind": "text",
+			"text": ", send via "
+		},
+		{
+			"kind": "code",
+			"text": "`ConnectionBasedForwarder`"
+		},
+		{
+			"kind": "text",
+			"text": ", return signature.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`forwarder`"
+		},
+		{
+			"kind": "text",
+			"text": " – sign with "
+		},
+		{
+			"kind": "code",
+			"text": "`UmbraWallet`"
+		},
+		{
+			"kind": "text",
+			"text": ", forward via "
+		},
+		{
+			"kind": "code",
+			"text": "`txForwarder`"
+		},
+		{
+			"kind": "text",
+			"text": ", return generic "
+		},
+		{
+			"kind": "code",
+			"text": "`T`"
+		},
+		{
+			"kind": "text",
+			"text": ".\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`signed`"
+		},
+		{
+			"kind": "text",
+			"text": " – return signed "
+		},
+		{
+			"kind": "code",
+			"text": "`VersionedTransaction`"
+		},
+		{
+			"kind": "text",
+			"text": " without submitting.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`prepared`"
+		},
+		{
+			"kind": "text",
+			"text": " – populate blockhash/fee payer, but do not sign.\n  - "
+		},
+		{
+			"kind": "code",
+			"text": "`raw`"
+		},
+		{
+			"kind": "text",
+			"text": " – build a transaction message with a placeholder blockhash, caller sets everything else.\n\n- **Pluggable ZK prover**\n  The ZK prover is injected via "
+		},
+		{
+			"kind": "code",
+			"text": "`IZkProver`"
+		},
+		{
+			"kind": "text",
+			"text": ", allowing the SDK to support multiple backends\n  (WASM/snarkjs, RapidSnark, remote proving services, etc.) without changing call sites.\n\n---\n\n## Contributing\n\n1. Install dependencies:\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```bash\npnpm install\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n2. Run type‑check and build:\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```bash\npnpm type-check\npnpm build\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\n3. Run formatting checks:\n\n"
+		},
+		{
+			"kind": "code",
+			"text": "```bash\npnpm format:check\n```"
+		},
+		{
+			"kind": "text",
+			"text": "\n\nWhen contributing new functions or classes, please:\n\n- Add **JSDoc** with parameter/return descriptions and at least one usage example.\n- Prefer existing branded types from "
+		},
+		{
+			"kind": "code",
+			"text": "`src/types`"
+		},
+		{
+			"kind": "text",
+			"text": " where appropriate.\n- Ensure "
+		},
+		{
+			"kind": "code",
+			"text": "`pnpm type-check`"
+		},
+		{
+			"kind": "text",
+			"text": " and "
+		},
+		{
+			"kind": "code",
+			"text": "`pnpm build`"
+		},
+		{
+			"kind": "text",
+			"text": " both succeed before opening a PR."
+		}
+	],
+	"symbolIdMap": {},
+	"files": {
+		"entries": {
+			"1": "src/index.ts",
+			"2": "README.md",
+			"3": ""
+		},
+		"reflections": {
+			"1": 0,
+			"2": 0,
+			"3": 0
+		}
+	}
+}

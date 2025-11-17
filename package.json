@@ -37,9 +37,13 @@
                 "client": "link:@types/arcium-hq/client",
                 "curves": "link:@types/noble/curves",
                 "hashes": "link:@types/@noble/hashes",
-                "tsup": "^8.0.1",
                 "prettier": "^3.2.5",
-                "typescript": "^5.3.3"
+                "tsup": "^8.0.1",
+                "typedoc": "^0.28.14",
+                "typedoc-plugin-markdown": "^4.9.0",
+                "typedoc-to-mdx": "^0.2.0",
+                "typescript": "^5.3.3",
+                "undici-types": "^7.16.0"
         },
         "dependencies": {
                 "@arcium-hq/client": "^0.4.0",
@@ -48,6 +52,8 @@
                 "@noble/hashes": "^2.0.1",
                 "@solana/web3.js": "^1.98.4",
                 "bn.js": "^5.2.2",
+                "eventemitter": "^0.3.3",
+                "eventemitter3": "^5.0.1",
                 "snarkjs": "^0.7.4",
                 "web3.js": "link:@types/@solana/web3.js"
         }

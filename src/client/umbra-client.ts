@@ -76,7 +76,17 @@ import {
         buildExistingTokenDepositMxeInstruction,
         buildNewTokenDepositSharedInstruction,
 } from './instruction-builders/deposit';
-import { WSOL_MINT_ADDRESS } from '@/constants/anchor';
+import {
+        ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE,
+        ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ARCIUM_BALANCE_INITIALISED,
+        ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED,
+        ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED,
+        ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE,
+        ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED,
+        ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED,
+        ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_REQUIRES_SOL_DEPOSIT,
+        WSOL_MINT_ADDRESS,
+} from '@/constants/anchor';
 import {
         buildInitialiseMasterWalletSpecifierInstruction,
         buildInitialiseMixerPoolInstruction,
@@ -91,7 +101,21 @@ import {
 import { buildInitialisePublicCommissionFeesPoolInstruction } from './instruction-builders/fees';
 import { kmac256 } from '@noble/hashes/sha3-addons.js';
 import { x25519 } from '@noble/curves/ed25519.js';
-import { RescueCipher } from './implementation';
+import { RescueCipher } from '@/client/implementation';
+import {
+        buildExistingTokenTransferSolMxeInstruction,
+        buildExistingTokenTransferSolSharedInstruction,
+        buildExistingTokenTransferSplMxeInstruction,
+        buildExistingTokenTransferSplSharedInstruction,
+        buildNewTokenTransferSolMxeInstruction,
+        buildNewTokenTransferSolSharedInstruction,
+        buildNewTokenTransferSplMxeInstruction,
+        buildNewTokenTransferSplSharedInstruction,
+} from './instruction-builders/transfer';
+
+const ZERO_SHA3_HASH = new Uint8Array(32) as Sha3Hash;
+
+type ConfidentialTransferMode = 'relayer' | 'prepared' | 'signed' | 'raw';
 
 /**
  * Error thrown when adding an Umbra wallet to the client fails.
@@ -1815,11 +1839,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @remarks
          * This method mirrors {@link depositPublicallyIntoMixerPoolSol} but operates on SPL tokens.
          * The key differences are:
-         * - No relayer fee cut is subtracted from the deposited SPL `amount` itself.
-         * - The commission fees are not subtracted from the deposited SPL `amount`; the full `amount` is
-         *   committed into the mixer pool, while commission accounting is handled separately.
-         * - The relayer fees are instead paid out of the user's wrapped SOL (WSOL) balance when the
-         *   transaction is forwarded by the relayer.
+         * - Commission fees **are** subtracted directly from the deposited SPL `amount`, ensuring the on-chain
+         *   commitment reflects the post-commission value.
+         * - Relayer fees are paid out of the user's wrapped SOL (WSOL) balance when the transaction is forwarded,
+         *   so the SPL `amount` only accounts for commission deductions.
          *
          * Internally, it:
          * - Ensures the Arcium-encrypted user account is initialised, active, and has a registered master viewing key.
@@ -3137,6 +3160,18 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * - The wallet must have a valid master viewing key
          * - The commitment must exist in the mixer pool at the specified index
          *
+         * **Mode Options:**
+         * - **Default / `'relayer'`** – Forwards the transaction to the specified relayer service and
+         *   returns the resulting {@link SolanaTransactionSignature}.
+         * - **`'prepared'`** – Returns an unsigned {@link VersionedTransaction} with a fresh blockhash
+         *   so it can be passed to the relayer (or another submitter) for signing.
+         * - **`'signed'`** – Returns a {@link VersionedTransaction} signed by the client's Umbra wallet.
+         *   The relayer (or any fee payer) must still append its signature before broadcasting.
+         * - **`'raw'`** – Returns a {@link VersionedTransaction} built with a placeholder blockhash.
+         *   The caller must replace the blockhash and ensure the same relayer key pair (or another
+         *   designated fee payer) signs the transaction before submission. The ephemeral keys derived
+         *   for the claim must remain unchanged when re-signing.
+         *
          * @param mintAddress - The mint address of the token being claimed
          * @param destinationAddress - The destination address where the claimed tokens will be deposited
          * @param commitmentInsertionIndex - The index in the Merkle tree where the commitment was inserted
@@ -3146,7 +3181,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @param claimableBalance - The amount that can be claimed (after fees are deducted)
          * @param optionalData - Optional SHA3 hash for additional data
          *
-         * @returns A promise resolving to the transaction signature of the forwarded transaction
+         * @returns Depending on the `mode`, either a {@link SolanaTransactionSignature} (relayer mode)
+         * or a {@link VersionedTransaction} that can be further signed / submitted by the caller.
          *
          * @throws {@link UmbraClientError} When:
          * - No Umbra wallet is set on the client
@@ -3189,7 +3225,64 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 time: Time,
                 claimableBalance: Amount,
                 optionalData: Sha3Hash
-        ): Promise<SolanaTransactionSignature> {
+        ): Promise<SolanaTransactionSignature>;
+        public async claimDepositConfidentiallyFromMixerPool(
+                mintAddress: MintAddress,
+                destinationAddress: SolanaAddress,
+                commitmentInsertionIndex: U64,
+                relayerPublicKey: SolanaAddress,
+                generationIndex: U256,
+                time: Time,
+                claimableBalance: Amount,
+                optionalData: Sha3Hash,
+                opts: { mode: 'relayer' }
+        ): Promise<SolanaTransactionSignature>;
+        public async claimDepositConfidentiallyFromMixerPool(
+                mintAddress: MintAddress,
+                destinationAddress: SolanaAddress,
+                commitmentInsertionIndex: U64,
+                relayerPublicKey: SolanaAddress,
+                generationIndex: U256,
+                time: Time,
+                claimableBalance: Amount,
+                optionalData: Sha3Hash,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async claimDepositConfidentiallyFromMixerPool(
+                mintAddress: MintAddress,
+                destinationAddress: SolanaAddress,
+                commitmentInsertionIndex: U64,
+                relayerPublicKey: SolanaAddress,
+                generationIndex: U256,
+                time: Time,
+                claimableBalance: Amount,
+                optionalData: Sha3Hash,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async claimDepositConfidentiallyFromMixerPool(
+                mintAddress: MintAddress,
+                destinationAddress: SolanaAddress,
+                commitmentInsertionIndex: U64,
+                relayerPublicKey: SolanaAddress,
+                generationIndex: U256,
+                time: Time,
+                claimableBalance: Amount,
+                optionalData: Sha3Hash,
+                opts: { mode: 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async claimDepositConfidentiallyFromMixerPool(
+                mintAddress: MintAddress,
+                destinationAddress: SolanaAddress,
+                commitmentInsertionIndex: U64,
+                relayerPublicKey: SolanaAddress,
+                generationIndex: U256,
+                time: Time,
+                claimableBalance: Amount,
+                optionalData: Sha3Hash,
+                opts?: { mode: 'relayer' | 'prepared' | 'signed' | 'raw' }
+        ): Promise<SolanaTransactionSignature | VersionedTransaction> {
+                const mode = opts?.mode ?? 'relayer';
+
                 // Validate prerequisites
                 if (!this.umbraWallet) {
                         throw new UmbraClientError(
@@ -3287,16 +3380,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         0;
                         }
 
-                        const ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED = 0;
-                        const ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED = 1;
-                        const ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE = 3;
-
-                        const ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED = 0;
-                        const ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE = 1;
-                        const ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ARCIUM_BALANCE_INITIALISED = 2;
-                        const ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED = 3;
-
-                        const instructions = [];
+                        const instructions: Array<TransactionInstruction> = [];
 
                         // Generate cryptographic values
                         const randomSecret = this.umbraWallet.generateRandomSecret(generationIndex);
@@ -3692,21 +3776,53 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 }
                         }
 
-                        // Build and forward transaction
+                        if (mode === 'raw') {
+                                const rawMessage = new TransactionMessage({
+                                        payerKey: relayerPublicKey,
+                                        recentBlockhash: '11111111111111111111111111111111',
+                                        instructions,
+                                }).compileToV0Message();
+
+                                return new VersionedTransaction(rawMessage);
+                        }
+
+                        const { blockhash } = await this.connectionBasedForwarder
+                                .getConnection()
+                                .getLatestBlockhash();
+
                         const transactionMessage = new TransactionMessage({
                                 payerKey: relayerPublicKey,
-                                recentBlockhash: (
-                                        await this.connectionBasedForwarder.connection.getLatestBlockhash()
-                                ).blockhash,
+                                recentBlockhash: blockhash,
                                 instructions,
-                        });
+                        }).compileToV0Message();
 
-                        const versionedTransaction = new VersionedTransaction(
-                                transactionMessage.compileToV0Message()
-                        );
+                        const preparedTransaction = new VersionedTransaction(transactionMessage);
+
+                        if (mode === 'prepared') {
+                                return preparedTransaction;
+                        }
+
+                        if (mode === 'signed') {
+                                try {
+                                        const transactionToSign = VersionedTransaction.deserialize(
+                                                preparedTransaction.serialize()
+                                        );
+                                        return await this.umbraWallet.signTransaction(
+                                                transactionToSign
+                                        );
+                                } catch (error) {
+                                        throw new UmbraClientError(
+                                                `Failed to sign claim transaction: ${
+                                                        error instanceof Error
+                                                                ? error.message
+                                                                : String(error)
+                                                }`
+                                        );
+                                }
+                        }
 
                         const relayerForwarder = RelayerForwarder.fromPublicKey(relayerPublicKey);
-                        return await relayerForwarder.forwardTransaction(versionedTransaction);
+                        return await relayerForwarder.forwardTransaction(preparedTransaction);
                 } catch (error) {
                         if (error instanceof UmbraClientError) {
                                 throw error;
@@ -3717,6 +3833,603 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 }
         }
 
+        /**
+         * Transfers tokens confidentially between encrypted accounts using Rescue cipher encryption.
+         *
+         * @remarks
+         * This method enables private token transfers between Arcium encrypted accounts. The transfer
+         * amount is encrypted using Rescue cipher, ensuring that only authorized parties can decrypt
+         * the transfer details. The method automatically handles account initialization and selects
+         * the appropriate transfer instruction based on the receiver's account state.
+         *
+         * **Transfer Process:**
+         * 1. Validates sender accounts (user and token accounts must be active and in shared mode)
+         * 2. Fetches and decodes receiver account data
+         * 3. Initializes receiver accounts if they don't exist
+         * 4. Encrypts the transfer amount using Rescue cipher
+         * 5. Builds appropriate transfer instructions based on receiver account state
+         * 6. Signs and forwards the transaction through a relayer
+         *
+         * **Sender Account Requirements:**
+         * - User account must be active and in shared mode (not MXE encrypted)
+         * - Token account must be active and in shared mode (not MXE encrypted)
+         * - User account must not require a SOL deposit
+         *
+         * **Receiver Account Initialization:**
+         * If the receiver's user account or token account doesn't exist, initialization instructions
+         * are automatically added to the transaction. After initialization:
+         * - **User Account**: Initialized, MXE encrypted, and active
+         * - **Token Account**: Initialized, active, Arcium balance uninitialized, and MXE encrypted
+         *
+         * **Transfer Instruction Selection:**
+         * The method selects the appropriate transfer instruction based on receiver account state:
+         * - If token account's Arcium balance is initialized:
+         *   - MXE encrypted → `buildExistingTokenTransferSolMxeInstruction` / `buildExistingTokenTransferSplMxeInstruction`
+         *   - Shared → `buildExistingTokenTransferSolSharedInstruction` / `buildExistingTokenTransferSplSharedInstruction`
+         * - If token account's Arcium balance is not initialized:
+         *   - User account MXE encrypted → `buildNewTokenTransferSolMxeInstruction` / `buildNewTokenTransferSplMxeInstruction`
+         *   - User account shared → `buildNewTokenTransferSolSharedInstruction` / `buildNewTokenTransferSplSharedInstruction`
+         *
+         * **Privacy Features:**
+         * - Transfer amount is encrypted using Rescue cipher with X25519 key exchange
+         * - Sender and receiver identities are protected
+         * - Transfer details are processed within the Arcium Multi-Execution Environment (MXE)
+         * - Supports both SOL (via WSOL) and SPL token transfers
+         *
+         * **Relayer Support:**
+         * If no `relayerPublicKey` is provided, a random relayer is automatically selected using
+         * {@link getRandomRelayerForwarder}. The relayer pays transaction fees on behalf of the
+         * user, enabling gasless transfers.
+         *
+         * **Mode Options:**
+         * - **Default / `'relayer'`** – Forwards the transaction to the specified relayer service and
+         *   returns the resulting {@link SolanaTransactionSignature}.
+         * - **`'prepared'`** – Returns an unsigned {@link VersionedTransaction} with a fresh blockhash
+         *   so it can be passed to the relayer (or another submitter) for signing.
+         * - **`'signed'`** – Returns a {@link VersionedTransaction} signed by the client's Umbra wallet.
+         *   The relayer (or any fee payer) must still append its signature before broadcasting.
+         * - **`'raw'`** – Returns a {@link VersionedTransaction} built with a fresh blockhash.
+         *   The caller must ensure the same relayer key pair (or another designated fee payer) signs
+         *   the transaction before submission.
+         *
+         * **Requirements:**
+         * - An Umbra wallet must be set on the client via {@link setUmbraWallet}
+         * - The wallet must have a valid rescue cipher initialized
+         * - Sender accounts must exist and be in the correct state
+         *
+         * @param destinationAddress - The destination address where tokens will be transferred
+         * @param mintAddress - The mint address of the token being transferred. Use {@link WSOL_MINT_ADDRESS} for SOL transfers
+         * @param amount - The amount of tokens to transfer (encrypted using Rescue cipher)
+         * @param relayerPublicKey - Optional public key of the relayer that will process and pay for the transaction.
+         *                          If not provided, a random relayer is selected automatically.
+         * @param optionalData - Optional SHA3 hash for additional data
+         *
+         * @returns Depending on the `mode`, either a {@link SolanaTransactionSignature} (relayer mode)
+         * or a {@link VersionedTransaction} that can be further signed / submitted by the caller.
+         *
+         * @throws {@link UmbraClientError} When:
+         * - No Umbra wallet is set on the client
+         * - Sender public key is unavailable
+         * - Rescue cipher is not initialized
+         * - Sender user account does not exist or is not active
+         * - Sender user account is MXE encrypted (must be in shared mode)
+         * - Sender token account does not exist or is not active
+         * - Sender token account is MXE encrypted (must be in shared mode)
+         * - Sender user account requires SOL deposit
+         * - Receiver user account exists but is not active
+         * - Receiver token account exists but is not active
+         * - Account decoding fails
+         * - Rescue cipher encryption fails
+         * - Instruction building fails
+         * - Transaction building or forwarding fails
+         * - Unable to resolve relayer public key
+         *
+         * @example
+         * ```typescript
+         * const client = UmbraClient.create('https://api.mainnet-beta.solana.com');
+         * await client.setUmbraWallet(signer);
+         *
+         * // Transfer with automatic relayer selection
+         * const signature = await client.transferConfidentially(
+         *   destinationAddress,
+         *   usdcMintAddress,
+         *   1000000n, // 1 USDC with 6 decimals
+         *   undefined, // relayerPublicKey - will use random relayer
+         *   optionalDataHash
+         * );
+         *
+         * // Transfer with specific relayer
+         * const signature2 = await client.transferConfidentially(
+         *   destinationAddress,
+         *   WSOL_MINT_ADDRESS, // SOL transfer
+         *   1000000000n, // 1 SOL
+         *   specificRelayerPublicKey,
+         *   optionalDataHash
+         * );
+         *
+         * // Get prepared transaction for custom handling
+         * const preparedTx = await client.transferConfidentially(
+         *   destinationAddress,
+         *   usdcMintAddress,
+         *   1000000n,
+         *   undefined,
+         *   optionalDataHash,
+         *   { mode: 'prepared' }
+         * );
+         * ```
+         */
+        public async transferConfidentially(
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                amount: Amount,
+                relayerPublicKey?: SolanaAddress,
+                optionalData?: Sha3Hash
+        ): Promise<SolanaTransactionSignature>;
+        public async transferConfidentially(
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                amount: Amount,
+                relayerPublicKey: SolanaAddress | undefined,
+                optionalData: Sha3Hash | undefined,
+                opts: { mode: 'relayer' }
+        ): Promise<SolanaTransactionSignature>;
+        public async transferConfidentially(
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                amount: Amount,
+                relayerPublicKey: SolanaAddress | undefined,
+                optionalData: Sha3Hash | undefined,
+                opts: { mode: 'signed' | 'prepared' | 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async transferConfidentially(
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                amount: Amount,
+                relayerPublicKey?: SolanaAddress,
+                optionalData?: Sha3Hash,
+                opts?: { mode?: ConfidentialTransferMode }
+        ): Promise<SolanaTransactionSignature | VersionedTransaction> {
+                if (!this.umbraWallet) {
+                        throw new UmbraClientError(
+                                'Cannot transfer confidentially: Umbra wallet is not set. Call setUmbraWallet() first.'
+                        );
+                }
+
+                const resolvedOptionalData = optionalData ?? ZERO_SHA3_HASH;
+                const mode = opts?.mode ?? 'relayer';
+
+                let resolvedRelayerPublicKey = relayerPublicKey;
+                if (!resolvedRelayerPublicKey) {
+                        const randomRelayer = await UmbraClient.getRandomRelayerForwarder();
+                        resolvedRelayerPublicKey = randomRelayer.relayerPublicKey;
+                }
+                if (!resolvedRelayerPublicKey) {
+                        throw new UmbraClientError('Unable to resolve relayer public key');
+                }
+
+                const senderPublicKey = await this.umbraWallet.signer.getPublicKey();
+                if (!senderPublicKey) {
+                        throw new UmbraClientError(
+                                'Cannot transfer confidentially: sender public key is unavailable.'
+                        );
+                }
+
+                const rescueCipher = this.umbraWallet.rescueCiphers.get(
+                        MXE_ARCIUM_X25519_PUBLIC_KEY
+                );
+                if (!rescueCipher) {
+                        throw new UmbraClientError(
+                                'Cannot transfer confidentially: rescue cipher is not initialized.'
+                        );
+                }
+
+                const [ciphertexts, nonce] = await rescueCipher.encrypt([amount]);
+                if (!ciphertexts || !ciphertexts[0]) {
+                        throw new UmbraClientError(
+                                'Failed to encrypt transfer amount: rescue cipher returned no ciphertexts'
+                        );
+                }
+
+                const senderArciumEncryptedUserAccountPda =
+                        getArciumEncryptedUserAccountPda(senderPublicKey)!;
+                const senderArciumEncryptedTokenAccountPda = getArciumEncryptedTokenAccountPda(
+                        senderPublicKey,
+                        mintAddress
+                )!;
+                const receiverArciumEncryptedUserAccountPda =
+                        getArciumEncryptedUserAccountPda(destinationAddress)!;
+                const receiverArciumEncryptedTokenAccountPda = getArciumEncryptedTokenAccountPda(
+                        destinationAddress,
+                        mintAddress
+                )!;
+
+                const [
+                        senderArciumEncryptedUserAccountRawData,
+                        senderArciumEncryptedTokenAccountRawData,
+                        receiverArciumEncryptedUserAccountRawData,
+                        receiverArciumEncryptedTokenAccountRawData,
+                ] = await this.connectionBasedForwarder.connection.getMultipleAccountsInfo([
+                        senderArciumEncryptedUserAccountPda,
+                        senderArciumEncryptedTokenAccountPda,
+                        receiverArciumEncryptedUserAccountPda,
+                        receiverArciumEncryptedTokenAccountPda,
+                ]);
+
+                if (!senderArciumEncryptedUserAccountRawData) {
+                        throw new UmbraClientError('Sender user account does not exist');
+                }
+                if (!senderArciumEncryptedTokenAccountRawData) {
+                        throw new UmbraClientError('Sender token account does not exist');
+                }
+
+                let senderArciumEncryptedUserAccount: Awaited<
+                        ReturnType<typeof this.program.account.arciumEncryptedUserAccount.fetch>
+                >;
+                let senderArciumEncryptedTokenAccount: Awaited<
+                        ReturnType<typeof this.program.account.arciumEncryptedTokenAccount.fetch>
+                >;
+                try {
+                        senderArciumEncryptedUserAccount = this.program.coder.accounts.decode(
+                                'ArciumEncryptedUserAccount',
+                                senderArciumEncryptedUserAccountRawData.data
+                        );
+                } catch (error) {
+                        throw new UmbraClientError(
+                                `Failed to decode sender user account data: ${
+                                        error instanceof Error ? error.message : String(error)
+                                }`
+                        );
+                }
+
+                try {
+                        senderArciumEncryptedTokenAccount = this.program.coder.accounts.decode(
+                                'ArciumEncryptedTokenAccount',
+                                senderArciumEncryptedTokenAccountRawData.data
+                        );
+                } catch (error) {
+                        throw new UmbraClientError(
+                                `Failed to decode sender token account data: ${
+                                        error instanceof Error ? error.message : String(error)
+                                }`
+                        );
+                }
+
+                let receiverArciumEncryptedUserAccountStatusByte: number;
+                if (receiverArciumEncryptedUserAccountRawData) {
+                        try {
+                                const receiverAccount = this.program.coder.accounts.decode(
+                                        'ArciumEncryptedUserAccount',
+                                        receiverArciumEncryptedUserAccountRawData.data
+                                );
+                                receiverArciumEncryptedUserAccountStatusByte =
+                                        receiverAccount.status[0] ?? 0;
+                        } catch (error) {
+                                throw new UmbraClientError(
+                                        `Failed to decode receiver user account data: ${
+                                                error instanceof Error
+                                                        ? error.message
+                                                        : String(error)
+                                        }`
+                                );
+                        }
+                } else {
+                        receiverArciumEncryptedUserAccountStatusByte = 0;
+                }
+
+                let receiverArciumEncryptedTokenAccountStatusByte: number;
+                if (receiverArciumEncryptedTokenAccountRawData) {
+                        try {
+                                const receiverTokenAccount = this.program.coder.accounts.decode(
+                                        'ArciumEncryptedTokenAccount',
+                                        receiverArciumEncryptedTokenAccountRawData.data
+                                );
+                                receiverArciumEncryptedTokenAccountStatusByte =
+                                        receiverTokenAccount.status[0] ?? 0;
+                        } catch (error) {
+                                throw new UmbraClientError(
+                                        `Failed to decode receiver token account data: ${
+                                                error instanceof Error
+                                                        ? error.message
+                                                        : String(error)
+                                        }`
+                                );
+                        }
+                } else {
+                        receiverArciumEncryptedTokenAccountStatusByte = 0;
+                }
+
+                if (
+                        !isBitSet(
+                                senderArciumEncryptedUserAccount.status[0] ?? 0,
+                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE
+                        )
+                ) {
+                        throw new UmbraClientError('Sender user account is not active');
+                }
+                if (
+                        isBitSet(
+                                senderArciumEncryptedUserAccount.status[0] ?? 0,
+                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED
+                        )
+                ) {
+                        throw new UmbraClientError(
+                                'Sender user account must be in shared mode (not MXE encrypted)'
+                        );
+                }
+                if (
+                        !isBitSet(
+                                senderArciumEncryptedTokenAccount.status[0] ?? 0,
+                                ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE
+                        )
+                ) {
+                        throw new UmbraClientError('Sender token account is not active');
+                }
+                if (
+                        isBitSet(
+                                senderArciumEncryptedTokenAccount.status[0] ?? 0,
+                                ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED
+                        )
+                ) {
+                        throw new UmbraClientError(
+                                'Sender token account must be in shared mode (not MXE encrypted)'
+                        );
+                }
+
+                if (
+                        isBitSet(
+                                senderArciumEncryptedUserAccount.status[0] ?? 0,
+                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_REQUIRES_SOL_DEPOSIT
+                        )
+                ) {
+                        throw new UmbraClientError('Sender user account requires SOL deposit');
+                }
+
+                const instructions: Array<TransactionInstruction> = [];
+
+                const isReceiverUserAccountInitialized = isBitSet(
+                        receiverArciumEncryptedUserAccountStatusByte,
+                        ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED
+                );
+
+                if (!isReceiverUserAccountInitialized) {
+                        instructions.push(
+                                await buildInitialiseArciumEncryptedUserAccountInstruction(
+                                        {
+                                                destinationAddress: destinationAddress,
+                                                signer: resolvedRelayerPublicKey,
+                                        },
+                                        {
+                                                optionalData: resolvedOptionalData,
+                                        }
+                                )
+                        );
+                        receiverArciumEncryptedUserAccountStatusByte =
+                                UmbraClient.getDefaultInitializedUserAccountStatus()[0] ?? 0;
+                } else if (
+                        !isBitSet(
+                                receiverArciumEncryptedUserAccountStatusByte,
+                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE
+                        )
+                ) {
+                        throw new UmbraClientError('Receiver user account is not active');
+                }
+
+                const isReceiverTokenAccountInitialized = isBitSet(
+                        receiverArciumEncryptedTokenAccountStatusByte,
+                        ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED
+                );
+
+                if (!isReceiverTokenAccountInitialized) {
+                        instructions.push(
+                                await buildInitialiseArciumEncryptedTokenAccountInstruction(
+                                        {
+                                                destinationAddress: destinationAddress,
+                                                signer: resolvedRelayerPublicKey,
+                                                mint: mintAddress,
+                                        },
+                                        {
+                                                optionalData: resolvedOptionalData,
+                                        }
+                                )
+                        );
+                        receiverArciumEncryptedTokenAccountStatusByte =
+                                UmbraClient.getDefaultInitializedTokenAccountStatus()[0] ?? 0;
+                } else if (
+                        !isBitSet(
+                                receiverArciumEncryptedTokenAccountStatusByte,
+                                ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE
+                        )
+                ) {
+                        throw new UmbraClientError('Receiver token account is not active');
+                }
+
+                const isReceiverTokenAccountArciumBalanceInitialized = isBitSet(
+                        receiverArciumEncryptedTokenAccountStatusByte,
+                        ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_ARCIUM_BALANCE_INITIALISED
+                );
+                const isReceiverTokenAccountMxeEncrypted = isBitSet(
+                        receiverArciumEncryptedTokenAccountStatusByte,
+                        ARCIUM_ENCRYPTED_TOKEN_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED
+                );
+                const isReceiverUserAccountMxeEncrypted = isBitSet(
+                        receiverArciumEncryptedUserAccountStatusByte,
+                        ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED
+                );
+                const isSolTransfer = mintAddress === WSOL_MINT_ADDRESS;
+                const transferInstructionArgs = {
+                        transferAmountCiphertext: ciphertexts[0]!,
+                        transferAmountNonce: nonce,
+                        optionalData: resolvedOptionalData,
+                };
+
+                if (isReceiverTokenAccountArciumBalanceInitialized) {
+                        if (isReceiverTokenAccountMxeEncrypted) {
+                                instructions.push(
+                                        await (isSolTransfer
+                                                ? buildExistingTokenTransferSolMxeInstruction(
+                                                          {
+                                                                  relayer: resolvedRelayerPublicKey,
+                                                                  arciumSenderSigner:
+                                                                          senderPublicKey,
+                                                                  receiver: destinationAddress,
+                                                          },
+                                                          transferInstructionArgs
+                                                  )
+                                                : buildExistingTokenTransferSplMxeInstruction(
+                                                          {
+                                                                  relayer: resolvedRelayerPublicKey,
+                                                                  arciumSenderSigner:
+                                                                          senderPublicKey,
+                                                                  receiver: destinationAddress,
+                                                                  mint: mintAddress,
+                                                          },
+                                                          transferInstructionArgs
+                                                  ))
+                                );
+                        } else {
+                                instructions.push(
+                                        await (isSolTransfer
+                                                ? buildExistingTokenTransferSolSharedInstruction(
+                                                          {
+                                                                  relayer: resolvedRelayerPublicKey,
+                                                                  arciumSenderSigner:
+                                                                          senderPublicKey,
+                                                                  receiver: destinationAddress,
+                                                          },
+                                                          transferInstructionArgs
+                                                  )
+                                                : buildExistingTokenTransferSplSharedInstruction(
+                                                          {
+                                                                  relayer: resolvedRelayerPublicKey,
+                                                                  arciumSenderSigner:
+                                                                          senderPublicKey,
+                                                                  receiver: destinationAddress,
+                                                                  mint: mintAddress,
+                                                          },
+                                                          transferInstructionArgs
+                                                  ))
+                                );
+                        }
+                } else if (isReceiverUserAccountMxeEncrypted) {
+                        instructions.push(
+                                await (isSolTransfer
+                                        ? buildNewTokenTransferSolMxeInstruction(
+                                                  {
+                                                          relayer: resolvedRelayerPublicKey,
+                                                          arciumSenderSigner: senderPublicKey,
+                                                          receiver: destinationAddress,
+                                                  },
+                                                  transferInstructionArgs
+                                          )
+                                        : buildNewTokenTransferSplMxeInstruction(
+                                                  {
+                                                          relayer: resolvedRelayerPublicKey,
+                                                          arciumSenderSigner: senderPublicKey,
+                                                          receiver: destinationAddress,
+                                                          mint: mintAddress,
+                                                  },
+                                                  transferInstructionArgs
+                                          ))
+                        );
+                } else {
+                        instructions.push(
+                                await (isSolTransfer
+                                        ? buildNewTokenTransferSolSharedInstruction(
+                                                  {
+                                                          relayer: resolvedRelayerPublicKey,
+                                                          arciumSenderSigner: senderPublicKey,
+                                                          receiver: destinationAddress,
+                                                  },
+                                                  transferInstructionArgs
+                                          )
+                                        : buildNewTokenTransferSplSharedInstruction(
+                                                  {
+                                                          relayer: resolvedRelayerPublicKey,
+                                                          arciumSenderSigner: senderPublicKey,
+                                                          receiver: destinationAddress,
+                                                          mint: mintAddress,
+                                                  },
+                                                  transferInstructionArgs
+                                          ))
+                        );
+                }
+
+                if (mode === 'raw') {
+                        const rawMessage = new TransactionMessage({
+                                payerKey: resolvedRelayerPublicKey,
+                                recentBlockhash: (
+                                        await this.connectionBasedForwarder
+                                                .getConnection()
+                                                .getLatestBlockhash()
+                                ).blockhash,
+                                instructions,
+                        }).compileToV0Message();
+
+                        return new VersionedTransaction(rawMessage);
+                }
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: resolvedRelayerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions,
+                }).compileToV0Message();
+
+                const preparedTransaction = new VersionedTransaction(transactionMessage);
+
+                if (mode === 'prepared') {
+                        return preparedTransaction;
+                }
+
+                try {
+                        const transactionToSign = VersionedTransaction.deserialize(
+                                preparedTransaction.serialize()
+                        );
+                        const signedTransaction =
+                                await this.umbraWallet.signTransaction(transactionToSign);
+
+                        if (mode === 'signed') {
+                                return signedTransaction;
+                        }
+
+                        const relayerForwarder =
+                                RelayerForwarder.fromPublicKey(resolvedRelayerPublicKey);
+                        return await relayerForwarder.forwardTransaction(signedTransaction);
+                } catch (error) {
+                        throw new UmbraClientError(
+                                `Failed to transfer confidentially: ${
+                                        error instanceof Error ? error.message : String(error)
+                                }`
+                        );
+                }
+        }
+
+        /**
+         * Retrieves the commission-fee slab configuration for confidential mixer-claim transactions.
+         *
+         * @remarks
+         * The confidential-claim path requires the relayer to know the commission fee percentage
+         * (expressed in basis points) as well as the amount range (lower and upper bounds) that
+         * correspond to the slab being used. This helper will eventually return that metadata so
+         * callers can:
+         *
+         * - Embed the same values inside the zero-knowledge proof inputs.
+         * - Ensure the on-chain program enforces the same configuration when validating the proof.
+         *
+         * The current implementation is a placeholder and always throws because the indexed fee
+         * configuration service has not been implemented yet.
+         *
+         * @param _mintAddress - SPL mint whose configuration should be fetched.
+         * @param _amount - Claimed amount that determines which fee slab applies.
+         *
+         * @returns A promise that resolves to the commission fee metadata (basis points plus lower/
+         * upper bounds) once implemented.
+         *
+         * @throws {@link UmbraClientError} Always for now, until the configuration source exists.
+         */
         public static async getFeesConfigurationForClaimDepositConfidentiallyFromMixerPool(
                 _mintAddress: MintAddress,
                 _amount: Amount
