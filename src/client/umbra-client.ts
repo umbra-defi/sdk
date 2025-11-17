@@ -6004,13 +6004,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         );
                 }
 
-                const amountAfterRelayerFees = amount - feesConfiguration.relayerFees;
-                const commissionFees =
-                        (amountAfterRelayerFees * feesConfiguration.commissionFees) / 10000n;
-                const remainder =
-                        (amountAfterRelayerFees * feesConfiguration.commissionFees) % 10000n;
+                const commissionFees = (amount * feesConfiguration.commissionFees) / 10000n;
+                const remainder = (amount * feesConfiguration.commissionFees) % 10000n;
 
-                const amountAfterCommissionFees = amountAfterRelayerFees - commissionFees;
+                const amountAfterCommissionFees = amount - commissionFees;
 
                 const time = Math.floor(Date.now() / 1000);
                 const dateObj = new Date(time * 1000);
@@ -6059,7 +6056,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         randomSecret,
                                         nullifier,
                                         amount,
-                                        feesConfiguration.relayerFees,
+                                        BigInt(0) as U128,
                                         feesConfiguration.commissionFeesLowerBound,
                                         feesConfiguration.commissionFeesUpperBound,
                                         feesConfiguration.commissionFees,
