@@ -198,6 +198,8 @@ export abstract class IZkProver {
                 commissionFeeLowBound: Amount,
                 commissionFeeHighBound: Amount,
                 commissionFeeBps: BasisPoints,
+                commissionFeeQuotient: U128,
+                commissionFeeRemainder: U128,
                 year: Year,
                 month: Month,
                 day: Day,
@@ -229,6 +231,11 @@ export abstract class IZkProver {
          * @param destinationAddressHigh - High 128 bits of the destination address
          * @param randomSecret - Random secret for commitment privacy (128-bit)
          * @param nullifier - Nullifier secret to prevent double-spending (128-bit)
+         * @param commissionFeeLowerBound - Lower bound for commission fee
+         * @param commissionFeeUpperBound - Upper bound for commission fee
+         * @param commissionFeeBps - Commission fee in basis points
+         * @param commissionFeeQuotient - Commission fee quotient
+         * @param commissionFeeRemainder - Commission fee remainder
          * @param amount - Deposit amount (public, revealed in proof)
          * @param year - Transaction year
          * @param month - Transaction month
