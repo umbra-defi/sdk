@@ -5392,6 +5392,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * If no `index` is provided, a random index is generated using {@link generateRandomU256}.
          * The index is used to derive the random secret and nullifier deterministically.
          *
+         * **Transaction Modes:**
+         * The method supports different transaction handling modes via the `opts` parameter:
+         * - `'relayer'` (default): Signs the transaction and forwards it through the relayer, returning a transaction signature
+         * - `'prepared'`: Returns a prepared but unsigned {@link VersionedTransaction}
+         * - `'signed'`: Returns a signed {@link VersionedTransaction} ready to be forwarded
+         * - `'raw'`: Returns a raw {@link VersionedTransaction} with a dummy blockhash (for testing/estimation)
+         *
          * **Requirements:**
          * - An Umbra wallet must be set on the client via {@link setUmbraWallet}
          * - A zero-knowledge prover must be set via {@link setZkProver}
@@ -5407,8 +5414,11 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @param relayerPublicKey - Optional public key of the relayer that will process and pay for the transaction.
          *                          If not provided, a random relayer is selected automatically.
          *                          Can be passed independently of index.
+         * @param opts - Optional transaction mode. Defaults to `'relayer'` if not specified.
          *
-         * @returns A promise resolving to the transaction signature from the relayer
+         * @returns Depending on the `mode`:
+         * - `'relayer'`: A promise resolving to the transaction signature from the relayer
+         * - `'prepared'`, `'signed'`, `'raw'`: A promise resolving to a {@link VersionedTransaction}
          *
          * @throws {@link UmbraClientError} When:
          * - No Umbra wallet is set on the client
@@ -5465,6 +5475,34 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *   42n, // index
          *   specificRelayerPublicKey
          * );
+         *
+         * // Deposit with prepared transaction (unsigned)
+         * const preparedTx = await client.depositConfidentiallyIntoMixerPoolSpl(
+         *   1000000n,
+         *   destinationAddress,
+         *   usdcMintAddress,
+         *   optionalDataHash,
+         *   { mode: 'prepared' }
+         * );
+         *
+         * // Deposit with signed transaction
+         * const signedTx = await client.depositConfidentiallyIntoMixerPoolSpl(
+         *   1000000n,
+         *   destinationAddress,
+         *   usdcMintAddress,
+         *   optionalDataHash,
+         *   42n, // index
+         *   { mode: 'signed' }
+         * );
+         *
+         * // Deposit with raw transaction (for testing)
+         * const rawTx = await client.depositConfidentiallyIntoMixerPoolSpl(
+         *   1000000n,
+         *   destinationAddress,
+         *   usdcMintAddress,
+         *   optionalDataHash,
+         *   { mode: 'raw' }
+         * );
          * ```
          */
         public async depositConfidentiallyIntoMixerPoolSpl(
@@ -5500,9 +5538,143 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 optionalData: Sha3Hash,
-                indexOrRelayerPublicKey?: U256 | SolanaAddress,
-                relayerPublicKey?: SolanaAddress
-        ): Promise<SolanaTransactionSignature> {
+                opts: { mode: 'relayer' }
+        ): Promise<SolanaTransactionSignature>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                index: U256,
+                opts: { mode: 'relayer' }
+        ): Promise<SolanaTransactionSignature>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                relayerPublicKey: SolanaAddress,
+                opts: { mode: 'relayer' }
+        ): Promise<SolanaTransactionSignature>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                index: U256,
+                relayerPublicKey: SolanaAddress,
+                opts: { mode: 'relayer' }
+        ): Promise<SolanaTransactionSignature>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                index: U256,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                relayerPublicKey: SolanaAddress,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                index: U256,
+                relayerPublicKey: SolanaAddress,
+                opts: { mode: 'prepared' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                index: U256,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                relayerPublicKey: SolanaAddress,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                index: U256,
+                relayerPublicKey: SolanaAddress,
+                opts: { mode: 'signed' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                opts: { mode: 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                index: U256,
+                opts: { mode: 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                relayerPublicKey: SolanaAddress,
+                opts: { mode: 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                index: U256,
+                relayerPublicKey: SolanaAddress,
+                opts: { mode: 'raw' }
+        ): Promise<VersionedTransaction>;
+        public async depositConfidentiallyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                optionalData: Sha3Hash,
+                indexOrRelayerPublicKeyOrOpts?:
+                        | U256
+                        | SolanaAddress
+                        | { mode: 'relayer' | 'prepared' | 'signed' | 'raw' },
+                relayerPublicKeyOrOpts?:
+                        | SolanaAddress
+                        | { mode: 'relayer' | 'prepared' | 'signed' | 'raw' },
+                maybeOpts?: { mode: 'relayer' | 'prepared' | 'signed' | 'raw' }
+        ): Promise<SolanaTransactionSignature | VersionedTransaction> {
                 if (!this.umbraWallet) {
                         throw new UmbraClientError(
                                 'Cannot deposit confidentially: Umbra wallet is not set. Call setUmbraWallet() first.'
@@ -5522,34 +5694,96 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         );
                 }
 
-                // Resolve index and relayer public key from parameters
+                // Parse parameters: resolve index, relayerPublicKey, and mode
                 let resolvedIndex: U256;
                 let resolvedRelayerPublicKey: SolanaAddress;
+                let mode: 'relayer' | 'prepared' | 'signed' | 'raw';
 
-                // Check if first optional param is index (U256) or relayerPublicKey (SolanaAddress)
-                if (indexOrRelayerPublicKey) {
-                        if (typeof indexOrRelayerPublicKey === 'bigint') {
+                // Check if first optional param is index (U256), relayerPublicKey (SolanaAddress), or opts
+                if (indexOrRelayerPublicKeyOrOpts) {
+                        if (typeof indexOrRelayerPublicKeyOrOpts === 'bigint') {
                                 // It's an index
-                                resolvedIndex = indexOrRelayerPublicKey as U256;
-                                // Use provided relayerPublicKey or get random
-                                if (relayerPublicKey) {
-                                        resolvedRelayerPublicKey = relayerPublicKey;
+                                resolvedIndex = indexOrRelayerPublicKeyOrOpts as U256;
+                                // Check second param - could be relayerPublicKey or opts
+                                if (relayerPublicKeyOrOpts) {
+                                        if (
+                                                typeof relayerPublicKeyOrOpts === 'object' &&
+                                                'mode' in relayerPublicKeyOrOpts
+                                        ) {
+                                                // It's opts
+                                                resolvedRelayerPublicKey = (
+                                                        await UmbraClient.getRandomRelayerForwarder()
+                                                ).relayerPublicKey;
+                                                mode = relayerPublicKeyOrOpts.mode;
+                                        } else {
+                                                // It's a relayerPublicKey
+                                                resolvedRelayerPublicKey =
+                                                        relayerPublicKeyOrOpts as SolanaAddress;
+                                                // Check third param for opts
+                                                mode = maybeOpts?.mode ?? 'relayer';
+                                        }
                                 } else {
-                                        const randomRelayer =
-                                                await UmbraClient.getRandomRelayerForwarder();
-                                        resolvedRelayerPublicKey = randomRelayer.relayerPublicKey;
+                                        // No second param - use random relayer, default mode
+                                        resolvedRelayerPublicKey = (
+                                                await UmbraClient.getRandomRelayerForwarder()
+                                        ).relayerPublicKey;
+                                        mode = 'relayer';
                                 }
+                        } else if (
+                                typeof indexOrRelayerPublicKeyOrOpts === 'object' &&
+                                'mode' in indexOrRelayerPublicKeyOrOpts
+                        ) {
+                                // It's opts
+                                resolvedIndex = generateRandomU256() as U256;
+                                resolvedRelayerPublicKey = (
+                                        await UmbraClient.getRandomRelayerForwarder()
+                                ).relayerPublicKey;
+                                mode = indexOrRelayerPublicKeyOrOpts.mode;
                         } else {
                                 // It's a relayerPublicKey (SolanaAddress)
-                                resolvedRelayerPublicKey = indexOrRelayerPublicKey as SolanaAddress;
+                                resolvedRelayerPublicKey =
+                                        indexOrRelayerPublicKeyOrOpts as SolanaAddress;
                                 // Generate random index
                                 resolvedIndex = generateRandomU256() as U256;
+                                // Check second param for opts
+                                if (
+                                        relayerPublicKeyOrOpts &&
+                                        typeof relayerPublicKeyOrOpts === 'object' &&
+                                        'mode' in relayerPublicKeyOrOpts
+                                ) {
+                                        mode = relayerPublicKeyOrOpts.mode;
+                                } else {
+                                        mode = 'relayer';
+                                }
                         }
                 } else {
-                        // Both are undefined - generate both
-                        resolvedIndex = generateRandomU256() as U256;
-                        const randomRelayer = await UmbraClient.getRandomRelayerForwarder();
-                        resolvedRelayerPublicKey = randomRelayer.relayerPublicKey;
+                        // First param is undefined
+                        // Check if second param is relayerPublicKey or opts
+                        if (relayerPublicKeyOrOpts) {
+                                if (
+                                        typeof relayerPublicKeyOrOpts === 'object' &&
+                                        'mode' in relayerPublicKeyOrOpts
+                                ) {
+                                        // It's opts
+                                        resolvedIndex = generateRandomU256() as U256;
+                                        resolvedRelayerPublicKey = (
+                                                await UmbraClient.getRandomRelayerForwarder()
+                                        ).relayerPublicKey;
+                                        mode = relayerPublicKeyOrOpts.mode;
+                                } else {
+                                        // It's a relayerPublicKey
+                                        resolvedRelayerPublicKey =
+                                                relayerPublicKeyOrOpts as SolanaAddress;
+                                        resolvedIndex = generateRandomU256() as U256;
+                                        mode = maybeOpts?.mode ?? 'relayer';
+                                }
+                        } else {
+                                // Both are undefined - generate both, default mode
+                                resolvedIndex = generateRandomU256() as U256;
+                                const randomRelayer = await UmbraClient.getRandomRelayerForwarder();
+                                resolvedRelayerPublicKey = randomRelayer.relayerPublicKey;
+                                mode = 'relayer';
+                        }
                 }
 
                 if (!resolvedRelayerPublicKey) {
@@ -5911,6 +6145,16 @@ export class UmbraClient<T = SolanaTransactionSignature> {
 
                 const instructions: Array<TransactionInstruction> = [depositInstruction];
 
+                if (mode === 'raw') {
+                        const rawMessage = new TransactionMessage({
+                                payerKey: resolvedRelayerPublicKey,
+                                recentBlockhash: '11111111111111111111111111111111',
+                                instructions,
+                        }).compileToV0Message();
+
+                        return new VersionedTransaction(rawMessage);
+                }
+
                 let blockhash: string;
                 try {
                         const blockhashResult = await this.connectionBasedForwarder
@@ -5933,6 +6177,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
 
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
+                if (mode === 'prepared') {
+                        return preparedTransaction;
+                }
+
                 try {
                         const transactionToSign = VersionedTransaction.deserialize(
                                 preparedTransaction.serialize()
@@ -5940,6 +6188,11 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         const signedTransaction =
                                 await this.umbraWallet.signTransaction(transactionToSign);
 
+                        if (mode === 'signed') {
+                                return signedTransaction;
+                        }
+
+                        // mode === 'relayer'
                         const relayerForwarder =
                                 RelayerForwarder.fromPublicKey(resolvedRelayerPublicKey);
                         return await relayerForwarder.forwardTransaction(signedTransaction);
