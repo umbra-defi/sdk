@@ -10,6 +10,9 @@ export default defineConfig({
         outDir: 'dist',
         splitting: false,
         treeshake: true,
+        outExtension({ format }) {
+                return {
+                        js: format === 'cjs' ? '.cjs' : '.mjs',
+                };
+        },
 });
-
-

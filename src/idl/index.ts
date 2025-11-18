@@ -8,5 +8,8 @@ import idl from '@/idl/idl.json';
 
 export const program: Program<Umbra> = new Program(
         idl,
-        new AnchorProvider(new Connection(''), new Wallet(Keypair.generate()))
+        new AnchorProvider(
+                new Connection('https://api.devnet.solana.com'),
+                new Wallet(Keypair.generate())
+        )
 );
