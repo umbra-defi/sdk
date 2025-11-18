@@ -31,6 +31,7 @@ import {
         Groth16ProofABeBytes,
         Groth16ProofBBeBytes,
         Groth16ProofCBeBytes,
+        U8,
 } from '@/types';
 import { ConnectionBasedForwarder } from '@/client/implementation/connection-based-forwarder';
 import {
@@ -117,6 +118,8 @@ import {
         buildNewTokenTransferSplSharedInstruction,
 } from '@/client/instruction-builders/transfer';
 import {
+        buildWithdrawFromMixerMxeInstruction,
+        buildWithdrawFromMixerSharedInstruction,
         buildWithdrawIntoMixerPoolSolInstruction,
         buildWithdrawIntoMixerPoolSplInstruction,
 } from '@/client/instruction-builders/withdraw';
@@ -187,6 +190,8 @@ export interface ClaimDepositArtifacts {
         generationIndex: U256;
         /** The timestamp when the original deposit was made (used for linker hash generation). */
         time: Time;
+        /** The claimable balance of the deposit. */
+        claimableBalance: Amount;
 }
 
 /**
@@ -1736,7 +1741,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const minute = dateObj.getUTCMinutes();
                 const second = dateObj.getUTCSeconds();
 
-                const linkerHash = this.umbraWallet.generateLinkerHash(
+                const linkerHash = this.umbraWallet.generateCreateDepositLinkerHash(
                         'create_spl_deposit_with_public_amount',
                         BigInt(time) as Time,
                         destinationAddress
@@ -2046,7 +2051,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const minute = dateObj.getUTCMinutes();
                 const second = dateObj.getUTCSeconds();
 
-                const linkerHash = this.umbraWallet.generateLinkerHash(
+                const linkerHash = this.umbraWallet.generateCreateDepositLinkerHash(
                         'create_spl_deposit_with_public_amount',
                         BigInt(time) as Time,
                         destinationAddress
@@ -3169,8 +3174,11 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         const nullifierHash = PoseidonHasher.hash([nullifier]);
 
                         // Get Merkle tree path
-                        const [merkleSiblingPathElements, merkleSiblingPathIndices, merkleRoot] =
-                                UmbraClient.getMerkleSiblingPathElements(commitmentInsertionIndex);
+                        const {
+                                siblings: merkleSiblingPathElements,
+                                siblingPathIndices: merkleSiblingPathIndices,
+                                merkleRoot,
+                        } = UmbraClient.getMerkleSiblingPathElements(commitmentInsertionIndex);
 
                         // Break addresses into low/high parts
                         const [destinationAddressLow, destinationAddressHigh] =
@@ -3205,10 +3213,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 );
 
                         // Generate linker hash
-                        const linkerHash = this.umbraWallet.generateLinkerHash(
+                        const linkerHash = this.umbraWallet.generateClaimDepositLinkerHash(
                                 'claim_spl_deposit_with_hidden_amount',
                                 BigInt(time) as Time,
-                                destinationAddress as SolanaAddress
+                                claimDepositArtifacts.commitmentInsertionIndex
                         );
                         if (!linkerHash) {
                                 throw new UmbraClientError(
@@ -4431,7 +4439,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const minute = dateObj.getUTCMinutes();
                 const second = dateObj.getUTCSeconds();
 
-                const linkerAddressHash = this.umbraWallet.generateLinkerHash(
+                const linkerAddressHash = this.umbraWallet.generateCreateDepositLinkerHash(
                         'create_spl_deposit_with_hidden_amount',
                         BigInt(time) as Time,
                         destinationAddress
@@ -5030,7 +5038,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const minute = dateObj.getUTCMinutes();
                 const second = dateObj.getUTCSeconds();
 
-                const linkerAddressHash = this.umbraWallet.generateLinkerHash(
+                const linkerAddressHash = this.umbraWallet.generateCreateDepositLinkerHash(
                         'create_spl_deposit_with_hidden_amount',
                         BigInt(time) as Time,
                         destinationAddress
@@ -5277,6 +5285,294 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 );
         }
 
+        public async claimPubliclyFromMixerPoolSol(
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                claimDepositArtifacts: ClaimDepositArtifacts,
+                opts?: {
+                        optionalData?: Sha3Hash;
+                        mode?: 'relayer' | 'forwarder' | 'signed' | 'prepared' | 'raw';
+                }
+        ): Promise<SolanaTransactionSignature | T | VersionedTransaction> {
+                const mode = opts?.mode ?? 'relayer';
+                const destinationArciumUserAccount =
+                        getArciumEncryptedUserAccountPda(destinationAddress);
+
+                let destinationArciumUserAccountStatus = 0;
+                let destinationUserAccountExists = true;
+
+                try {
+                        const destinationArciumUserAccountData =
+                                await this.program.account.arciumEncryptedUserAccount.fetch(
+                                        destinationArciumUserAccount
+                                );
+                        destinationArciumUserAccountStatus =
+                                destinationArciumUserAccountData.status[0];
+                } catch {
+                        destinationUserAccountExists = false;
+                }
+
+                const destinationUserAccountInitialised =
+                        destinationUserAccountExists &&
+                        isBitSet(
+                                destinationArciumUserAccountStatus,
+                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_INITIALISED
+                        );
+
+                if (
+                        destinationUserAccountInitialised &&
+                        !isBitSet(
+                                destinationArciumUserAccountStatus,
+                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_ACTIVE
+                        )
+                ) {
+                        throw new UmbraClientError(
+                                'Destination user account must be active before claiming publicly from the mixer pool.'
+                        );
+                }
+
+                const destinationUserAccountIsMxeEncrypted =
+                        !destinationUserAccountInitialised ||
+                        isBitSet(
+                                destinationArciumUserAccountStatus,
+                                ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED
+                        );
+
+                const nullifier = this.umbraWallet!.generateNullifier(
+                        claimDepositArtifacts.generationIndex
+                );
+                const nullifierHash = PoseidonHasher.hash([nullifier]);
+
+                const randomSecret = this.umbraWallet!.generateRandomSecret(
+                        claimDepositArtifacts.generationIndex
+                );
+
+                const linkerHash = this.umbraWallet!.generateClaimDepositLinkerHash(
+                        'claim_spl_deposit_with_public_amount',
+                        claimDepositArtifacts.time,
+                        claimDepositArtifacts.commitmentInsertionIndex
+                );
+
+                const {
+                        siblings: merkleSiblingPathElements,
+                        siblingPathIndices: merkleSiblingPathIndices,
+                        merkleRoot,
+                } = UmbraClient.getMerkleSiblingPathElements(
+                        claimDepositArtifacts.commitmentInsertionIndex
+                );
+
+                const randomBlindingFactor = generateRandomBlindingFactor();
+                const ephemeralKeypair = this.generateEphemeralKeypair(
+                        claimDepositArtifacts.generationIndex
+                );
+
+                const [destinationAddressLow, destinationAddressHigh] =
+                        breakPublicKeyIntoTwoParts(destinationAddress);
+
+                const userPublicKey = await this.umbraWallet!.signer.getPublicKey();
+
+                const [userPublicKeyLow, userPublicKeyHigh] =
+                        breakPublicKeyIntoTwoParts(userPublicKey);
+                const [mintPublicKeyLow, mintPublicKeyHigh] = breakPublicKeyIntoTwoParts(
+                        mintAddress as unknown as SolanaAddress
+                );
+                const [relayerPublicKeyLow, relayerPublicKeyHigh] = breakPublicKeyIntoTwoParts(
+                        claimDepositArtifacts.relayerPublicKey
+                );
+
+                const dateObj = new Date(Number(claimDepositArtifacts.time) * 1000);
+                const year = dateObj.getUTCFullYear();
+                const month = dateObj.getUTCMonth() + 1; // Months are zero-based
+                const day = dateObj.getUTCDate();
+                const hour = dateObj.getUTCHours();
+                const minute = dateObj.getUTCMinutes();
+                const second = dateObj.getUTCSeconds();
+
+                const sha3Commitment = sha3_256(
+                        Uint8Array.from([
+                                ...convertU128ToBeBytes(userPublicKeyLow),
+                                ...convertU128ToBeBytes(userPublicKeyHigh),
+                                ...convertU128ToBeBytes(randomBlindingFactor),
+                        ]).reverse()
+                ) as U256BeBytes;
+
+                const [proofA, proofB, proofC] = await this.zkProver!.generateClaimSplDepositProof(
+                        randomSecret,
+                        nullifier,
+                        this.umbraWallet!.masterViewingKey,
+                        merkleSiblingPathElements,
+                        merkleSiblingPathIndices,
+                        BigInt(1) as U8,
+                        claimDepositArtifacts.commitmentInsertionIndex as unknown as U128,
+                        destinationAddressLow,
+                        destinationAddressHigh,
+                        userPublicKeyLow,
+                        userPublicKeyHigh,
+                        BigInt(0) as U8,
+                        claimDepositArtifacts.claimableBalance,
+                        BigInt(year) as Year,
+                        BigInt(month) as Month,
+                        BigInt(day) as Day,
+                        BigInt(hour) as Hour,
+                        BigInt(minute) as Minute,
+                        BigInt(second) as Second,
+                        mintPublicKeyLow,
+                        mintPublicKeyHigh,
+                        randomBlindingFactor,
+                        relayerPublicKeyLow,
+                        relayerPublicKeyHigh,
+                        BigInt(1) as U8,
+                        BigInt(0) as U8,
+                        destinationAddressLow,
+                        destinationAddressHigh,
+                        claimDepositArtifacts.claimableBalance,
+                        mintPublicKeyLow,
+                        mintPublicKeyHigh,
+                        merkleRoot,
+                        linkerHash,
+                        nullifierHash,
+                        aggregateSha3HashIntoSinglePoseidonRoot(
+                                Uint8Array.from(sha3Commitment).reverse() as Sha3Hash
+                        ),
+                        relayerPublicKeyLow,
+                        relayerPublicKeyHigh
+                );
+
+                const { x25519PrivateKey, x25519PublicKey } =
+                        this.generateEphemeralArciumX25519PublicKey(
+                                claimDepositArtifacts.generationIndex
+                        );
+
+                const rescueCipher = RescueCipher.fromX25519Pair(
+                        x25519PrivateKey,
+                        MXE_ARCIUM_X25519_PUBLIC_KEY
+                );
+                const [ciphertexts, nonce] = await rescueCipher.encrypt([
+                        userPublicKeyLow,
+                        userPublicKeyHigh,
+                        randomBlindingFactor,
+                ]);
+
+                const optionalData = opts?.optionalData ?? ZERO_SHA3_HASH;
+                const noteCommitment = Uint8Array.from(sha3Commitment).reverse() as Sha3Hash;
+
+                const instructions: Array<TransactionInstruction> = [];
+
+                if (destinationUserAccountInitialised && !destinationUserAccountIsMxeEncrypted) {
+                        instructions.push(
+                                await buildWithdrawFromMixerSharedInstruction(
+                                        {
+                                                relayer: claimDepositArtifacts.relayerPublicKey,
+                                                destinationAddress,
+                                                mint: mintAddress,
+                                                ephemeralPublicKey:
+                                                        ephemeralKeypair.publicKey as unknown as SolanaAddress,
+                                        },
+                                        {
+                                                expectednullifierHash: nullifierHash,
+                                                expectedMerkleRoot: merkleRoot,
+                                                expectedLinkerAddressHash: linkerHash,
+                                                groth16ProofA: proofA,
+                                                groth16ProofB: proofB,
+                                                groth16ProofC: proofC,
+                                                ephemeralArcisPublicKey: x25519PublicKey,
+                                                nonce,
+                                                note_creator_address_part1_ciphertext:
+                                                        ciphertexts[0]!,
+                                                note_creator_address_part2_ciphertext:
+                                                        ciphertexts[1]!,
+                                                blinding_factor_ciphertext: ciphertexts[2]!,
+                                                note_creator_address_commitment: noteCommitment,
+                                                amount_to_withdraw:
+                                                        claimDepositArtifacts.claimableBalance,
+                                                optionalData,
+                                        }
+                                )
+                        );
+                } else {
+                        instructions.push(
+                                await buildWithdrawFromMixerMxeInstruction(
+                                        {
+                                                relayer: claimDepositArtifacts.relayerPublicKey,
+                                                destinationAddress,
+                                                mint: mintAddress,
+                                                ephemeralPublicKey:
+                                                        ephemeralKeypair.publicKey as unknown as SolanaAddress,
+                                        },
+                                        {
+                                                expectednullifierHash: nullifierHash,
+                                                expectedMerkleRoot: merkleRoot,
+                                                expectedLinkerAddressHash: linkerHash,
+                                                groth16ProofA: proofA,
+                                                groth16ProofB: proofB,
+                                                groth16ProofC: proofC,
+                                                ephemeralArcisPublicKey: x25519PublicKey,
+                                                nonce,
+                                                noteRecipientAddressPart1Ciphertext:
+                                                        ciphertexts[0]!,
+                                                noteRecipientAddressPart2Ciphertext:
+                                                        ciphertexts[1]!,
+                                                noteRecipientBlindingFactorCiphertext:
+                                                        ciphertexts[2]!,
+                                                noteRecipientAddressCommitment: noteCommitment,
+                                                amountToWithdraw:
+                                                        claimDepositArtifacts.claimableBalance,
+                                                optionalData,
+                                        }
+                                )
+                        );
+                }
+
+                if (mode === 'raw') {
+                        const rawMessage = new TransactionMessage({
+                                payerKey: claimDepositArtifacts.relayerPublicKey,
+                                recentBlockhash: '11111111111111111111111111111111',
+                                instructions,
+                        }).compileToV0Message();
+
+                        return new VersionedTransaction(rawMessage);
+                }
+
+                const { blockhash } = await this.connectionBasedForwarder
+                        .getConnection()
+                        .getLatestBlockhash();
+
+                const transactionMessage = new TransactionMessage({
+                        payerKey: claimDepositArtifacts.relayerPublicKey,
+                        recentBlockhash: blockhash,
+                        instructions,
+                }).compileToV0Message();
+
+                const preparedTransaction = new VersionedTransaction(transactionMessage);
+
+                if (mode === 'prepared') {
+                        return preparedTransaction;
+                }
+
+                const transactionToSign = VersionedTransaction.deserialize(
+                        preparedTransaction.serialize()
+                );
+                transactionToSign.sign([ephemeralKeypair]);
+
+                if (mode === 'signed') {
+                        return transactionToSign;
+                }
+
+                if (mode === 'forwarder') {
+                        if (!this.txForwarder) {
+                                throw new UmbraClientError(
+                                        'No transaction forwarder configured on UmbraClient'
+                                );
+                        }
+
+                        return await this.txForwarder.forwardTransaction(transactionToSign);
+                }
+
+                return await RelayerForwarder.fromPublicKey(
+                        claimDepositArtifacts.relayerPublicKey
+                ).forwardTransaction(transactionToSign);
+        }
+
         /**
          * Retrieves the commission-fee slab configuration for confidential mixer-claim transactions.
          *
@@ -5519,9 +5815,11 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 }
         }
 
-        public static getMerkleSiblingPathElements(
-                _index: U64
-        ): [Array<PoseidonHash>, Array<0 | 1>, PoseidonHash] {
+        public static getMerkleSiblingPathElements(_index: U64): {
+                siblings: Array<PoseidonHash>;
+                siblingPathIndices: Array<0 | 1>;
+                merkleRoot: PoseidonHash;
+        } {
                 throw new UmbraClientError('Not implemented');
         }
 }

@@ -564,6 +564,7 @@ export async function buildWithdrawFromMixerMxeInstruction(
                 relayer: SolanaAddress;
                 destinationAddress: SolanaAddress;
                 mint: MintAddress;
+                ephemeralPublicKey: SolanaAddress;
         },
         txArgs: {
                 expectednullifierHash: PoseidonHash;
@@ -574,11 +575,11 @@ export async function buildWithdrawFromMixerMxeInstruction(
                 groth16ProofC: Groth16ProofCBeBytes;
                 ephemeralArcisPublicKey: ArciumX25519PublicKey;
                 nonce: ArciumX25519Nonce;
-                note_creator_address_part1_ciphertext: RescueCiphertext;
-                note_creator_address_part2_ciphertext: RescueCiphertext;
-                blinding_factor_ciphertext: RescueCiphertext;
-                note_creator_address_commitment: Sha3Hash;
-                amount_to_withdraw: Amount;
+                noteRecipientAddressPart1Ciphertext: RescueCiphertext;
+                noteRecipientAddressPart2Ciphertext: RescueCiphertext;
+                noteRecipientBlindingFactorCiphertext: RescueCiphertext;
+                noteRecipientAddressCommitment: Sha3Hash;
+                amountToWithdraw: Amount;
                 optionalData: Sha3Hash;
         }
 ): Promise<TransactionInstruction> {
@@ -635,18 +636,18 @@ export async function buildWithdrawFromMixerMxeInstruction(
                                 ),
                                 convertArciumX25519NonceToTransactionInput(txArgs.nonce),
                                 convertRescueCiphertextToTransactionInput(
-                                        txArgs.note_creator_address_part1_ciphertext
+                                        txArgs.noteRecipientAddressPart1Ciphertext
                                 ),
                                 convertRescueCiphertextToTransactionInput(
-                                        txArgs.note_creator_address_part2_ciphertext
+                                        txArgs.noteRecipientAddressPart2Ciphertext
                                 ),
                                 convertRescueCiphertextToTransactionInput(
-                                        txArgs.blinding_factor_ciphertext
+                                        txArgs.noteRecipientBlindingFactorCiphertext
                                 ),
                                 convertSha3HashToTransactionInput(
-                                        txArgs.note_creator_address_commitment
+                                        txArgs.noteRecipientAddressCommitment
                                 ),
-                                convertAmountToTransactionInput(txArgs.amount_to_withdraw),
+                                convertAmountToTransactionInput(txArgs.amountToWithdraw),
                                 convertSha3HashToTransactionInput(txArgs.optionalData)
                         )
                         .accountsPartial({
@@ -660,6 +661,7 @@ export async function buildWithdrawFromMixerMxeInstruction(
                                 mempoolAccount: mempoolAccount,
                                 executingPool: executingPool,
                                 destinationAddress: txAccounts.destinationAddress,
+                                ephemeralSigner: txAccounts.ephemeralPublicKey,
                         });
 
                 const instruction = await ixBuilder.instruction();
@@ -773,6 +775,7 @@ export async function buildWithdrawFromMixerSharedInstruction(
                 relayer: SolanaAddress;
                 destinationAddress: SolanaAddress;
                 mint: MintAddress;
+                ephemeralPublicKey: SolanaAddress;
         },
         txArgs: {
                 expectednullifierHash: PoseidonHash;
@@ -869,6 +872,7 @@ export async function buildWithdrawFromMixerSharedInstruction(
                                 mempoolAccount: mempoolAccount,
                                 executingPool: executingPool,
                                 destinationAddress: txAccounts.destinationAddress,
+                                ephemeralSigner: txAccounts.ephemeralPublicKey,
                         });
 
                 const instruction = await ixBuilder.instruction();

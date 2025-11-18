@@ -15,6 +15,7 @@ import {
         U256,
         Time,
         SolanaAddress,
+        U64,
 } from '@/types';
 import { ISigner, SignerError } from '@/client/interface';
 import { RescueCipher } from '@/client/implementation';
@@ -631,10 +632,8 @@ export class UmbraWallet {
                 ]);
         }
 
-        public generateLinkerHash(
+        public generateCreateDepositLinkerHash(
                 purpose:
-                        | 'claim_spl_deposit_with_hidden_amount'
-                        | 'claim_spl_deposit_with_public_amount'
                         | 'create_spl_deposit_with_hidden_amount'
                         | 'create_spl_deposit_with_public_amount',
                 time: Time,
@@ -665,6 +664,38 @@ export class UmbraWallet {
                         convertU256LeBytesToU256(individualTransactionViewingKey),
                         addressLow,
                         addressHigh,
+                ]);
+        }
+
+        public generateClaimDepositLinkerHash(
+                purpose:
+                        | 'claim_spl_deposit_with_hidden_amount'
+                        | 'claim_spl_deposit_with_public_amount',
+                time: Time,
+                commitmentInsertionIndex: U64
+        ): PoseidonHash {
+                const dateObj = new Date(Number(time) * 1000);
+                const year = dateObj.getUTCFullYear();
+                const month = dateObj.getUTCMonth() + 1; // Months are zero-based
+                const day = dateObj.getUTCDate();
+                const hour = dateObj.getUTCHours();
+                const minute = dateObj.getUTCMinutes();
+                const second = dateObj.getUTCSeconds();
+
+                const individualTransactionViewingKey =
+                        this.generateIndividualTransactionViewingKey(
+                                purpose,
+                                BigInt(year) as Year,
+                                BigInt(month) as Month,
+                                BigInt(day) as Day,
+                                BigInt(hour) as Hour,
+                                BigInt(minute) as Minute,
+                                BigInt(second) as Second
+                        );
+
+                return PoseidonHasher.hash([
+                        convertU256LeBytesToU256(individualTransactionViewingKey),
+                        commitmentInsertionIndex,
                 ]);
         }
 
