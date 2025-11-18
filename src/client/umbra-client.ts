@@ -372,7 +372,15 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * resumption. This is the primary forwarder created during client initialization.
          */
         public readonly connectionBasedForwarder: ConnectionBasedForwarder;
+        /**
+         * Configured indexer implementation used for fetching Merkle proofs and other
+         * off-chain data needed to construct ZK transactions.
+         */
         public readonly indexer: IIndexer;
+        /**
+         * Anchor `Program` instance wired to the Umbra IDL, scoped to the connection
+         * provided at construction time. All program account fetches/decodes go through it.
+         */
         public readonly program: Program<Umbra>;
 
         private constructor(
@@ -1666,6 +1674,45 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          */
         public async depositPubliclyIntoMixerPoolSol(
                 amount: Amount,
+                destinationAddress: SolanaAddress
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature>>;
+        public async depositPubliclyIntoMixerPoolSol(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                opts: DepositPubliclyOptions & { mode: 'connection' }
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature>>;
+        public async depositPubliclyIntoMixerPoolSol(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                opts: DepositPubliclyOptions & { mode: 'forwarder' }
+        ): Promise<DepositPubliclyResult<T>>;
+        public async depositPubliclyIntoMixerPoolSol(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                opts: DepositPubliclyOptions
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSol(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                opts: DepositPubliclyOptions & { mode: 'signed' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSol(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                opts: DepositPubliclyOptions & { mode: 'prepared' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSol(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                opts: DepositPubliclyOptions & { mode: 'raw' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSol(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                opts?: DepositPubliclyOptions
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSol(
+                amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts?: DepositPubliclyOptions
         ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>> {
@@ -1974,6 +2021,47 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         public async depositPubliclyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
+                mintAddress: MintAddress
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature>>;
+        public async depositPubliclyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'connection' }
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature>>;
+        public async depositPubliclyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'forwarder' }
+        ): Promise<DepositPubliclyResult<T>>;
+        public async depositPubliclyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'signed' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'prepared' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'raw' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPoolSpl(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts?: DepositPubliclyOptions
         ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>> {
@@ -2238,22 +2326,73 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         public async depositPubliclyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
+                mintAddress: MintAddress
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature>>;
+        public async depositPubliclyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'connection' }
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature>>;
+        public async depositPubliclyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'forwarder' }
+        ): Promise<DepositPubliclyResult<T>>;
+        public async depositPubliclyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'signed' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'prepared' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts: DepositPubliclyOptions & { mode: 'raw' }
+        ): Promise<DepositPubliclyResult<VersionedTransaction>>;
+        public async depositPubliclyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts?: DepositPubliclyOptions
         ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>> {
                 if (mintAddress === WSOL_MINT_ADDRESS) {
-                        return this.depositPubliclyIntoMixerPoolSol(
+                        if (opts) {
+                                return this.depositPubliclyIntoMixerPoolSol(
+                                        amount,
+                                        destinationAddress,
+                                        opts
+                                );
+                        }
+                        return this.depositPubliclyIntoMixerPoolSol(amount, destinationAddress);
+                }
+
+                if (opts) {
+                        return this.depositPubliclyIntoMixerPoolSpl(
                                 amount,
                                 destinationAddress,
+                                mintAddress,
                                 opts
                         );
                 }
-
                 return this.depositPubliclyIntoMixerPoolSpl(
                         amount,
                         destinationAddress,
-                        mintAddress,
-                        opts
+                        mintAddress
                 );
         }
 
