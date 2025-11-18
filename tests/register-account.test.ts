@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { Connection, VersionedTransaction } from '@solana/web3.js';
 
 import { UmbraClient } from '../src/client/umbra-client';
-import { UmbraWallet } from '../src/client/umbra-wallet';
 import type { Sha3Hash } from '../src/types/cryptography';
 import { loadLocalKeypair } from './helpers/local-keypair';
+import { createUmbraWalletFromSigner } from '../src';
 
 /**
  * Integration-style test for `registerAccountForConfidentialityAndAnonymity`.
@@ -28,7 +28,7 @@ test(
                 const client = await UmbraClient.create({ connection });
 
                 const keypair = loadLocalKeypair();
-                const wallet = await UmbraWallet.fromSigner({ signer: { keypair } as any });
+                const wallet = await createUmbraWalletFromSigner({ signer: { keypair } as any });
                 await client.setUmbraWallet(wallet);
 
                 // A real zkProver configuration is required for a full integration test. For now we assume

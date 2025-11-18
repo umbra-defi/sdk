@@ -1,5 +1,5 @@
-import { UmbraWallet, UmbraWalletError } from '@/client/umbra-wallet';
-import { ITransactionForwarder, ISigner, IZkProver, IIndexer } from '@/client/interface';
+import { UmbraWallet } from '@/client/umbra-wallet';
+import { IIndexer, ISigner, ITransactionForwarder, IZkProver } from '@/client/interface';
 import {
         AccountOffset,
         Amount,
@@ -8,6 +8,9 @@ import {
         ArciumX25519SecretKey,
         BasisPoints,
         Day,
+        Groth16ProofABeBytes,
+        Groth16ProofBBeBytes,
+        Groth16ProofCBeBytes,
         Hour,
         InstructionSeed,
         MintAddress,
@@ -23,16 +26,13 @@ import {
         SolanaTransactionSignature,
         Time,
         U128,
+        U16,
         U256,
         U256BeBytes,
         U256LeBytes,
         U64,
-        Year,
-        Groth16ProofABeBytes,
-        Groth16ProofBBeBytes,
-        Groth16ProofCBeBytes,
         U8,
-        U16,
+        Year,
 } from '@/types';
 import { ConnectionBasedForwarder } from '@/client/implementation/connection-based-forwarder';
 import {
@@ -75,11 +75,11 @@ import {
 import { aggregateSha3HashIntoSinglePoseidonRoot, PoseidonHasher } from '@/utils/hasher';
 import { WasmZkProver, WasmZkProverConfig } from '@/client/implementation/wasm-zk-prover';
 import {
-        buildDepositIntoMixerSolInstruction,
         buildDepositIntoMixerPoolSplInstruction,
-        buildNewTokenDepositMxeInstruction,
-        buildExistingTokenDepositSharedInstruction,
+        buildDepositIntoMixerSolInstruction,
         buildExistingTokenDepositMxeInstruction,
+        buildExistingTokenDepositSharedInstruction,
+        buildNewTokenDepositMxeInstruction,
         buildNewTokenDepositSharedInstruction,
 } from './instruction-builders/deposit';
 import {
@@ -127,6 +127,13 @@ import {
         buildWithdrawIntoMixerPoolSolInstruction,
         buildWithdrawIntoMixerPoolSplInstruction,
 } from '@/client/instruction-builders/withdraw';
+import { UmbraWalletError } from '@/client/umbra-wallet-error';
+import { generateNullifier } from '@/client/helpers/generate-nullifier';
+import {
+        generateClaimDepositLinkerHash,
+        generateCreateDepositLinkerHash,
+} from '@/client/helpers/generate-claim-deposit-linker-hash';
+import { createUmbraWalletFromSigner } from '@/client/create-umbra-wallet-from-signer';
 
 const ZERO_SHA3_HASH = new Uint8Array(32) as Sha3Hash;
 
@@ -669,7 +676,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 }
 
                                 try {
-                                        wallet = await UmbraWallet.fromSigner(umbraWalletOrSigner);
+                                        wallet =
+                                                await createUmbraWalletFromSigner(
+                                                        umbraWalletOrSigner
+                                                );
                                 } catch (error) {
                                         if (error instanceof UmbraWalletError) {
                                                 throw new UmbraWalletAdditionError(
@@ -1605,7 +1615,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * - Ensures the Arcium-encrypted user account is initialised, active, and has a registered master viewing key.
          * - Uses either a caller-provided index or a freshly sampled random index and derives:
          *   - A random secret via {@link UmbraWallet.generateRandomSecret}
-         *   - A nullifier via {@link UmbraWallet.generateNullifier}
+         *   - A nullifier via {@link generateNullifier}
          * - Computes an inner commitment binding the random secret, nullifier, net deposit amount, master viewing key,
          *   and destination address.
          * - Computes a time-based linker hash via
@@ -1779,7 +1789,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 }
 
                 const randomSecret = this.umbraWallet.generateRandomSecret(index);
-                const nullifier = this.umbraWallet.generateNullifier(index);
+                const nullifier = generateNullifier(this.umbraWallet.masterViewingKey, index);
 
                 const [destinationAddressLo, destinationAddressHi] =
                         breakPublicKeyIntoTwoParts(destinationAddress);
@@ -1814,7 +1824,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const minute = dateObj.getUTCMinutes();
                 const second = dateObj.getUTCSeconds();
 
-                const linkerHash = this.umbraWallet.generateCreateDepositLinkerHash(
+                const linkerHash = generateCreateDepositLinkerHash(
+                        this.umbraWallet.masterViewingKey,
                         'create_spl_deposit_with_public_amount',
                         BigInt(time) as Time,
                         destinationAddress
@@ -1980,7 +1991,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * - Ensures the Arcium-encrypted user account is initialised, active, and has a registered master viewing key.
          * - Uses either a caller-provided index or a freshly sampled random index and derives:
          *   - A random secret via {@link UmbraWallet.generateRandomSecret}
-         *   - A nullifier via {@link UmbraWallet.generateNullifier}
+         *   - A nullifier via {@link generateNullifier}
          * - Computes an inner commitment binding the random secret, nullifier, deposit amount, master viewing key,
          *   and destination address.
          * - Computes a time-based linker hash via
@@ -2128,7 +2139,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 }
 
                 const randomSecret = this.umbraWallet.generateRandomSecret(index);
-                const nullifier = this.umbraWallet.generateNullifier(index);
+                const nullifier = generateNullifier(this.umbraWallet.masterViewingKey, index);
 
                 const [destinationAddressLo, destinationAddressHi] =
                         breakPublicKeyIntoTwoParts(destinationAddress);
@@ -2165,7 +2176,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const minute = dateObj.getUTCMinutes();
                 const second = dateObj.getUTCSeconds();
 
-                const linkerHash = this.umbraWallet.generateCreateDepositLinkerHash(
+                const linkerHash = generateCreateDepositLinkerHash(
+                        this.umbraWallet.masterViewingKey,
                         'create_spl_deposit_with_public_amount',
                         BigInt(time) as Time,
                         destinationAddress
@@ -3329,7 +3341,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 );
                         }
 
-                        const nullifier = this.umbraWallet.generateNullifier(generationIndex);
+                        const nullifier = generateNullifier(
+                                this.umbraWallet.masterViewingKey,
+                                generationIndex
+                        );
                         if (!nullifier) {
                                 throw new UmbraClientError(
                                         'Failed to generate nullifier. The wallet may not be properly initialized.'
@@ -3378,7 +3393,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 );
 
                         // Generate linker hash
-                        const linkerHash = this.umbraWallet.generateClaimDepositLinkerHash(
+                        const linkerHash = generateClaimDepositLinkerHash(
+                                this.umbraWallet.masterViewingKey,
                                 'claim_spl_deposit_with_hidden_amount',
                                 BigInt(time) as Time,
                                 claimDepositArtifacts.commitmentInsertionIndex
@@ -4540,7 +4556,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         );
                 }
 
-                const nullifier = this.umbraWallet.generateNullifier(resolvedIndex);
+                const nullifier = generateNullifier(
+                        this.umbraWallet.masterViewingKey,
+                        resolvedIndex
+                );
                 if (!nullifier) {
                         throw new UmbraClientError(
                                 'Failed to generate nullifier. The wallet may not be properly initialized.'
@@ -4604,7 +4623,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const minute = dateObj.getUTCMinutes();
                 const second = dateObj.getUTCSeconds();
 
-                const linkerAddressHash = this.umbraWallet.generateCreateDepositLinkerHash(
+                const linkerAddressHash = generateCreateDepositLinkerHash(
+                        this.umbraWallet.masterViewingKey,
                         'create_spl_deposit_with_hidden_amount',
                         BigInt(time) as Time,
                         destinationAddress
@@ -5155,7 +5175,10 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         );
                 }
 
-                const nullifier = this.umbraWallet.generateNullifier(resolvedIndex);
+                const nullifier = generateNullifier(
+                        this.umbraWallet.masterViewingKey,
+                        resolvedIndex
+                );
                 if (!nullifier) {
                         throw new UmbraClientError(
                                 'Failed to generate nullifier. The wallet may not be properly initialized.'
@@ -5203,7 +5226,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const minute = dateObj.getUTCMinutes();
                 const second = dateObj.getUTCSeconds();
 
-                const linkerAddressHash = this.umbraWallet.generateCreateDepositLinkerHash(
+                const linkerAddressHash = generateCreateDepositLinkerHash(
+                        this.umbraWallet.masterViewingKey,
                         'create_spl_deposit_with_hidden_amount',
                         BigInt(time) as Time,
                         destinationAddress
@@ -5503,7 +5527,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED
                         );
 
-                const nullifier = this.umbraWallet!.generateNullifier(
+                const nullifier = generateNullifier(
+                        this.umbraWallet!.masterViewingKey,
                         claimDepositArtifacts.generationIndex
                 );
                 const nullifierHash = PoseidonHasher.hash([nullifier]);
@@ -5512,7 +5537,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         claimDepositArtifacts.generationIndex
                 );
 
-                const linkerHash = this.umbraWallet!.generateClaimDepositLinkerHash(
+                const linkerHash = generateClaimDepositLinkerHash(
+                        this.umbraWallet!.masterViewingKey,
                         'claim_spl_deposit_with_public_amount',
                         claimDepositArtifacts.time,
                         claimDepositArtifacts.commitmentInsertionIndex
