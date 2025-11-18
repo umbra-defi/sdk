@@ -136,6 +136,20 @@ export interface DepositPubliclyOptions {
 }
 
 /**
+ * Structured result for public deposit calls.
+ */
+export interface DepositPubliclyResult<TTxData> {
+        /** The nullifier index used to derive random secret and nullifier. */
+        generationIndex: U256;
+        /** Relayer used (either provided or randomly selected). */
+        relayerPublicKey: SolanaAddress;
+        /** Net claimable balance after fees. */
+        claimableBalance: Amount;
+        /** Mode-dependent transaction data (signature, forwarded result, or prepared/signed tx). */
+        txReturnedData: TTxData;
+}
+
+/**
  * Options for confidential deposit methods into the mixer pool.
  */
 export interface DepositConfidentiallyOptions {
@@ -159,6 +173,44 @@ export interface TransferConfidentiallyOptions {
         optionalData?: Sha3Hash;
         /** Transaction handling mode. Defaults to 'relayer' for confidential transfers. */
         mode?: 'relayer' | 'prepared' | 'signed' | 'raw';
+}
+
+/**
+ * Artifacts required for claiming a deposit from the mixer pool.
+ */
+export interface ClaimDepositArtifacts {
+        /** The index in the Merkle tree where the commitment was inserted. */
+        commitmentInsertionIndex: U64;
+        /** The public key of the relayer that will process and pay for the transaction. */
+        relayerPublicKey: SolanaAddress;
+        /** The generation index used to derive cryptographic values (random secret, nullifier). */
+        generationIndex: U256;
+        /** The timestamp when the original deposit was made (used for linker hash generation). */
+        time: Time;
+}
+
+/**
+ * Options for claiming deposits from the mixer pool.
+ */
+export interface ClaimDepositOptions {
+        /** Optional SHA3 hash for additional data. If not provided, a zero hash is used. */
+        optionalData?: Sha3Hash;
+        /** Transaction handling mode. Defaults to 'relayer' for claim operations. */
+        mode?: 'relayer' | 'prepared' | 'signed' | 'raw';
+}
+
+/**
+ * Structured result for confidential deposit calls.
+ */
+export interface DepositConfidentiallyResult<TTxData> {
+        /** The generation index used to derive cryptographic values (random secret, nullifier). */
+        generationIndex: U256;
+        /** Relayer used (either provided or randomly selected). */
+        relayerPublicKey: SolanaAddress;
+        /** Net claimable balance after relayer + commission fees. */
+        claimableBalance: Amount;
+        /** Mode-dependent transaction data (signature or prepared/signed transaction). */
+        txReturnedData: TTxData;
 }
 
 /**
@@ -1502,12 +1554,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *   - `index`: Optional index used to derive random secret and nullifier. If not provided, a random index is generated.
          *   - `relayerPublicKey`: Optional public key of the relayer. If not provided, a random relayer is selected automatically.
          *   - `mode`: Transaction handling mode. Defaults to `'connection'` for public deposits.
-         * @returns Depending on the `mode`, a tuple `[index, relayerPublicKey, claimableBalance, value]` where:
-         * - `index` is the {@link U256} nullifier index used to derive the random secret and nullifier.
-         * - `relayerPublicKey` is the {@link SolanaAddress} of the randomly selected relayer used for this deposit.
-         * - `claimableBalance` is the {@link Amount} that can be claimed after deducting relayer fees and commission fees.
-         * - `value` is either a transaction signature, a forwarded result of type `T`, or a prepared/signed
-         *   {@link VersionedTransaction}.
+         * @returns Depending on the `mode`, an object with:
+         * - `generationIndex`: the {@link U256} nullifier index used to derive the random secret and nullifier.
+         * - `relayerPublicKey`: the {@link SolanaAddress} of the relayer used for this deposit.
+         * - `claimableBalance`: the {@link Amount} claimable after deducting relayer + commission fees.
+         * - `txReturnedData`: either a transaction signature, forwarded result of type `T`, or a prepared/signed
+         *   {@link VersionedTransaction}, matching the selected mode.
          *
          * @remarks
          * This method:
@@ -1559,7 +1611,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @example
          * ```ts
          * // Basic usage with default 'connection' mode and auto-generated index/relayer.
-         * const [index, relayerPublicKey, claimableBalance, signature] =
+         * const { generationIndex, relayerPublicKey, claimableBalance, txReturnedData } =
          *   await client.depositPubliclyIntoMixerPoolSol(
          *     amount,
          *     destinationAddress
@@ -1569,7 +1621,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @example
          * ```ts
          * // Usage with specific index and relayer, using 'signed' mode.
-         * const [index, relayerPublicKey, claimableBalance, signedTx] =
+         * const { generationIndex, relayerPublicKey, claimableBalance, txReturnedData } =
          *   await client.depositPubliclyIntoMixerPoolSol(
          *     amount,
          *     destinationAddress,
@@ -1585,9 +1637,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts?: DepositPubliclyOptions
-        ): Promise<
-                [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
-        > {
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>> {
                 // Parse options with defaults
                 const index = opts?.index ?? (generateRandomU256() as U256);
                 const mode = opts?.mode ?? 'connection';
@@ -1661,16 +1711,16 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 amount
                         );
 
+                // Calculate claimable balance: (amount - relayerFee) * (1 - commissionFee/10000)
                 const amountAfterRelayerFees = amount - feesConfiguration.relayerFees;
                 const commissionFees =
                         (amountAfterRelayerFees * feesConfiguration.commissionFees) / 10000n;
-                const amountAfterCommissionFees = amountAfterRelayerFees - commissionFees;
-                const claimableBalance = amountAfterCommissionFees as Amount;
+                const claimableBalance = amountAfterRelayerFees - commissionFees;
 
                 const innerCommitment = PoseidonHasher.hash([
                         randomSecret,
                         nullifier,
-                        amountAfterCommissionFees,
+                        claimableBalance,
                         this.umbraWallet.masterViewingKey,
                         destinationAddressLo,
                         destinationAddressHi,
@@ -1705,14 +1755,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 destinationAddressHi,
                                 randomSecret,
                                 nullifier,
-                                amountAfterCommissionFees as Amount,
+                                claimableBalance as U128,
                                 BigInt(year) as Year,
                                 BigInt(month) as Month,
                                 BigInt(day) as Day,
                                 BigInt(hour) as Hour,
                                 BigInt(minute) as Minute,
                                 BigInt(second) as Second,
-                                amountAfterCommissionFees as Amount,
+                                claimableBalance as U128,
                                 BigInt(year) as Year,
                                 BigInt(month) as Month,
                                 BigInt(day) as Day,
@@ -1751,12 +1801,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 instructions,
                         }).compileToV0Message();
 
-                        return [
-                                index,
-                                resolvedRelayerPublicKey,
-                                claimableBalance,
-                                new VersionedTransaction(rawMessage),
-                        ];
+                        return {
+                                generationIndex: index,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance: claimableBalance as U128,
+                                txReturnedData: new VersionedTransaction(rawMessage),
+                        };
                 }
 
                 const { blockhash } = await this.connectionBasedForwarder
@@ -1772,24 +1822,24 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
                 if (mode === 'prepared') {
-                        return [
-                                index,
-                                resolvedRelayerPublicKey,
-                                claimableBalance,
-                                preparedTransaction,
-                        ];
+                        return {
+                                generationIndex: index,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance: claimableBalance as U128,
+                                txReturnedData: preparedTransaction,
+                        };
                 }
 
                 const signedTransaction =
                         await this.umbraWallet.signTransaction(preparedTransaction);
 
                 if (mode === 'signed') {
-                        return [
-                                index,
-                                resolvedRelayerPublicKey,
-                                claimableBalance,
-                                signedTransaction,
-                        ];
+                        return {
+                                generationIndex: index,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance: claimableBalance as U128,
+                                txReturnedData: signedTransaction,
+                        };
                 }
 
                 if (mode === 'forwarder') {
@@ -1798,21 +1848,27 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         'No transaction forwarder configured on UmbraClient'
                                 );
                         }
-                        return [
-                                index,
-                                resolvedRelayerPublicKey,
-                                claimableBalance,
-                                await this.txForwarder.forwardTransaction(signedTransaction),
-                        ];
+                        return {
+                                generationIndex: index,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance: claimableBalance as U128,
+                                txReturnedData:
+                                        await this.txForwarder.forwardTransaction(
+                                                signedTransaction
+                                        ),
+                        };
                 }
 
                 // 'connection' mode: send via connectionBasedForwarder.
-                return [
-                        index,
-                        resolvedRelayerPublicKey,
-                        claimableBalance,
-                        await this.connectionBasedForwarder.forwardTransaction(signedTransaction),
-                ];
+                return {
+                        generationIndex: index,
+                        relayerPublicKey: resolvedRelayerPublicKey,
+                        claimableBalance: claimableBalance as U128,
+                        txReturnedData:
+                                await this.connectionBasedForwarder.forwardTransaction(
+                                        signedTransaction
+                                ),
+                };
         }
 
         /**
@@ -1826,13 +1882,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *   - `index`: Optional index used to derive random secret and nullifier. If not provided, a random index is generated.
          *   - `relayerPublicKey`: Optional public key of the relayer. If not provided, a random relayer is selected automatically.
          *   - `mode`: Transaction handling mode. Defaults to `'connection'` for public deposits.
-         * @returns Depending on the `mode`, a tuple `[index, relayerPublicKey, claimableBalance, value]` where:
-         * - `index` is the {@link U256} nullifier index used to derive the random secret and nullifier.
-         * - `relayerPublicKey` is the {@link SolanaAddress} of the randomly selected relayer used for this deposit.
-         * - `claimableBalance` is the {@link Amount} that can be claimed after deducting commission fees (relayer fees
+         * @returns Depending on the `mode`, an object with:
+         * - `generationIndex`: the {@link U256} nullifier index used to derive the random secret and nullifier.
+         * - `relayerPublicKey`: the {@link SolanaAddress} of the relayer used for this deposit.
+         * - `claimableBalance`: the {@link Amount} that can be claimed after deducting commission fees (relayer fees
          *   are paid separately from WSOL for SPL deposits).
-         * - `value` is either a transaction signature, a forwarded result of type `T`, or a prepared/signed
-         *   {@link VersionedTransaction}.
+         * - `txReturnedData`: either a transaction signature, a forwarded result of type `T`, or a prepared/signed
+         *   {@link VersionedTransaction}, matching the selected mode.
          *
          * @remarks
          * This method mirrors {@link depositPubliclyIntoMixerPoolSol} but operates on SPL tokens.
@@ -1860,7 +1916,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @example
          * ```ts
          * // Basic SPL deposit with default 'connection' mode and auto-generated index/relayer.
-         * const [index, relayerPublicKey, claimableBalance, signature] =
+         * const { generationIndex, relayerPublicKey, claimableBalance, txReturnedData } =
          *   await client.depositPubliclyIntoMixerPoolSpl(
          *     amount,
          *     destinationAddress,
@@ -1871,7 +1927,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @example
          * ```ts
          * // SPL deposit with specific index and relayer, using 'prepared' mode.
-         * const [index, relayerPublicKey, claimableBalance, preparedTx] =
+         * const { generationIndex, relayerPublicKey, claimableBalance, txReturnedData } =
          *   await client.depositPubliclyIntoMixerPoolSpl(
          *     amount,
          *     destinationAddress,
@@ -1889,9 +1945,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts?: DepositPubliclyOptions
-        ): Promise<
-                [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
-        > {
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>> {
                 // Parse options with defaults
                 const index = opts?.index ?? (generateRandomU256() as U256);
                 const mode = opts?.mode ?? 'connection';
@@ -1961,21 +2015,22 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         breakPublicKeyIntoTwoParts(destinationAddress);
 
                 const feesConfiguration =
-                        await UmbraClient.getFeesConfigurationForPublicDepositIntoMixerPoolSol(
-                                amount
+                        await UmbraClient.getFeesConfigurationForPublicDepositIntoMixerPoolSpl(
+                                amount,
+                                mintAddress
                         );
 
-                // For SPL deposits, we do not subtract relayer fees or commission fees from the amount.
-                const amountAfterRelayerFees = amount;
+                // Calculate claimable balance: (amount - relayerFee) * (1 - commissionFee/10000)
+                // Note: For SPL deposits, relayer fees are typically 0 as they are paid from WSOL
+                const amountAfterRelayerFees = amount - feesConfiguration.relayerFees;
                 const commissionFees =
                         (amountAfterRelayerFees * feesConfiguration.commissionFees) / 10000n;
-                const amountAfterCommissionFees = amountAfterRelayerFees - commissionFees;
-                const claimableBalance = amountAfterCommissionFees as Amount;
+                const claimableBalance = amountAfterRelayerFees - commissionFees;
 
                 const innerCommitment = PoseidonHasher.hash([
                         randomSecret,
                         nullifier,
-                        amountAfterCommissionFees,
+                        claimableBalance as U128,
                         this.umbraWallet.masterViewingKey,
                         destinationAddressLo,
                         destinationAddressHi,
@@ -2010,14 +2065,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 destinationAddressHi,
                                 randomSecret,
                                 nullifier,
-                                amountAfterCommissionFees as Amount,
+                                claimableBalance as U128,
                                 BigInt(year) as Year,
                                 BigInt(month) as Month,
                                 BigInt(day) as Day,
                                 BigInt(hour) as Hour,
                                 BigInt(minute) as Minute,
                                 BigInt(second) as Second,
-                                amountAfterCommissionFees as Amount,
+                                claimableBalance as U128,
                                 BigInt(year) as Year,
                                 BigInt(month) as Month,
                                 BigInt(day) as Day,
@@ -2057,12 +2112,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 instructions,
                         }).compileToV0Message();
 
-                        return [
-                                index,
-                                resolvedRelayerPublicKey,
-                                claimableBalance,
-                                new VersionedTransaction(rawMessage),
-                        ];
+                        return {
+                                generationIndex: index,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance: claimableBalance as U128,
+                                txReturnedData: new VersionedTransaction(rawMessage),
+                        };
                 }
 
                 const { blockhash } = await this.connectionBasedForwarder
@@ -2078,24 +2133,24 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
                 if (mode === 'prepared') {
-                        return [
-                                index,
-                                resolvedRelayerPublicKey,
-                                claimableBalance,
-                                preparedTransaction,
-                        ];
+                        return {
+                                generationIndex: index,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance: claimableBalance as U128,
+                                txReturnedData: preparedTransaction,
+                        };
                 }
 
                 const signedTransaction =
                         await this.umbraWallet.signTransaction(preparedTransaction);
 
                 if (mode === 'signed') {
-                        return [
-                                index,
-                                resolvedRelayerPublicKey,
-                                claimableBalance,
-                                signedTransaction,
-                        ];
+                        return {
+                                generationIndex: index,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance: claimableBalance as U128,
+                                txReturnedData: signedTransaction,
+                        };
                 }
 
                 if (mode === 'forwarder') {
@@ -2104,21 +2159,27 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                         'No transaction forwarder configured on UmbraClient'
                                 );
                         }
-                        return [
-                                index,
-                                resolvedRelayerPublicKey,
-                                claimableBalance,
-                                await this.txForwarder.forwardTransaction(signedTransaction),
-                        ];
+                        return {
+                                generationIndex: index,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance: claimableBalance as U128,
+                                txReturnedData:
+                                        await this.txForwarder.forwardTransaction(
+                                                signedTransaction
+                                        ),
+                        };
                 }
 
                 // 'connection' mode: send via connectionBasedForwarder.
-                return [
-                        index,
-                        resolvedRelayerPublicKey,
-                        claimableBalance,
-                        await this.connectionBasedForwarder.forwardTransaction(signedTransaction),
-                ];
+                return {
+                        generationIndex: index,
+                        relayerPublicKey: resolvedRelayerPublicKey,
+                        claimableBalance: claimableBalance as U128,
+                        txReturnedData:
+                                await this.connectionBasedForwarder.forwardTransaction(
+                                        signedTransaction
+                                ),
+                };
         }
 
         /**
@@ -2148,9 +2209,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts?: DepositPubliclyOptions
-        ): Promise<
-                [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
-        > {
+        ): Promise<DepositPubliclyResult<SolanaTransactionSignature | T | VersionedTransaction>> {
                 if (mintAddress === WSOL_MINT_ADDRESS) {
                         return this.depositPubliclyIntoMixerPoolSol(
                                 amount,
@@ -2193,6 +2252,52 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          */
         public static async getFeesConfigurationForPublicDepositIntoMixerPoolSol(
                 _amount: Amount
+        ): Promise<{
+                relayerFees: Amount;
+                commissionFees: BasisPoints;
+                commissionFeesLowerBound: Amount;
+                commissionFeesUpperBound: Amount;
+        }> {
+                // TODO: Add fetching from Indexed data for Mainnet Launch!
+                return {
+                        relayerFees: 0n as Amount,
+                        commissionFees: 0n as BasisPoints,
+                        commissionFeesLowerBound: 0n as Amount,
+                        commissionFeesUpperBound: 0n as Amount,
+                };
+        }
+
+        /**
+         * Returns the fee configuration for a public SPL token deposit into the mixer pool.
+         *
+         * @param _amount - The intended deposit amount, used to determine the applicable fee slab.
+         * @param _mintAddress - The SPL token mint address.
+         * @returns An object containing:
+         * - `relayerFees`: Absolute fee amount paid to the relayer (typically 0 for SPL deposits as relayer fees are paid from WSOL).
+         * - `commissionFees`: Commission fee in basis points (bps) applied to the deposit amount.
+         * - `commissionFeesLowerBound`: Lower bound of the commission-fee slab for informational purposes.
+         * - `commissionFeesUpperBound`: Upper bound of the commission-fee slab for informational purposes.
+         *
+         * @remarks
+         * In a production deployment this method is expected to look up fee slabs from an indexed
+         * data source (or on-chain configuration) based on the provided `_amount` and `_mintAddress`.
+         * The current implementation is a placeholder that returns zero fees for all fields.
+         *
+         * @example
+         * ```ts
+         * const amount: Amount = 1_000_000n as Amount; // 1 USDC with 6 decimals, for example
+         * const fees = await UmbraClient.getFeesConfigurationForPublicDepositIntoMixerPoolSpl(
+         *   amount,
+         *   usdcMintAddress
+         * );
+         *
+         * console.log(fees.relayerFees.toString());
+         * console.log(fees.commissionFees.toString());
+         * ```
+         */
+        public static async getFeesConfigurationForPublicDepositIntoMixerPoolSpl(
+                _amount: Amount,
+                _mintAddress: MintAddress
         ): Promise<{
                 relayerFees: Amount;
                 commissionFees: BasisPoints;
@@ -2884,12 +2989,15 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *
          * @param mintAddress - The mint address of the token being claimed
          * @param destinationAddress - The destination address where the claimed tokens will be deposited
-         * @param commitmentInsertionIndex - The index in the Merkle tree where the commitment was inserted
-         * @param relayerPublicKey - The public key of the relayer that will process and pay for the transaction
-         * @param generationIndex - The generation index used to derive cryptographic values (random secret, nullifier)
-         * @param time - The timestamp when the original deposit was made (used for linker hash generation)
          * @param claimableBalance - The amount that can be claimed (after fees are deducted)
-         * @param optionalData - Optional SHA3 hash for additional data
+         * @param claimDepositArtifacts - Required artifacts for claiming the deposit, containing:
+         *   - `commitmentInsertionIndex`: The index in the Merkle tree where the commitment was inserted
+         *   - `relayerPublicKey`: The public key of the relayer that will process and pay for the transaction
+         *   - `generationIndex`: The generation index used to derive cryptographic values (random secret, nullifier)
+         *   - `time`: The timestamp when the original deposit was made (used for linker hash generation)
+         * @param opts - Optional configuration object containing:
+         *   - `optionalData`: Optional SHA3 hash for additional data. If not provided, a zero hash is used.
+         *   - `mode`: Transaction handling mode. Defaults to `'relayer'` for claim operations.
          *
          * @returns Depending on the `mode`, either a {@link SolanaTransactionSignature} (relayer mode)
          * or a {@link VersionedTransaction} that can be further signed / submitted by the caller.
@@ -2917,81 +3025,32 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * const signature = await client.claimDepositConfidentiallyFromMixerPool(
          *   usdcMintAddress,
          *   destinationAddress,
-         *   42n, // commitmentInsertionIndex
-         *   relayerPublicKey,
-         *   0n, // generationIndex
-         *   1704067200n, // time (Unix timestamp)
          *   1000000n, // claimableBalance (1 USDC with 6 decimals)
-         *   optionalDataHash
+         *   {
+         *     commitmentInsertionIndex: 42n,
+         *     relayerPublicKey: relayerPublicKey,
+         *     generationIndex: 0n,
+         *     time: 1704067200n // Unix timestamp
+         *   },
+         *   {
+         *     optionalData: optionalDataHash
+         *   }
          * );
          * ```
          */
         public async claimDepositConfidentiallyFromMixerPool(
                 mintAddress: MintAddress,
                 destinationAddress: SolanaAddress,
-                commitmentInsertionIndex: U64,
-                relayerPublicKey: SolanaAddress,
-                generationIndex: U256,
-                time: Time,
                 claimableBalance: Amount,
-                optionalData: Sha3Hash
-        ): Promise<SolanaTransactionSignature>;
-        public async claimDepositConfidentiallyFromMixerPool(
-                mintAddress: MintAddress,
-                destinationAddress: SolanaAddress,
-                commitmentInsertionIndex: U64,
-                relayerPublicKey: SolanaAddress,
-                generationIndex: U256,
-                time: Time,
-                claimableBalance: Amount,
-                optionalData: Sha3Hash,
-                opts: { mode: 'relayer' }
-        ): Promise<SolanaTransactionSignature>;
-        public async claimDepositConfidentiallyFromMixerPool(
-                mintAddress: MintAddress,
-                destinationAddress: SolanaAddress,
-                commitmentInsertionIndex: U64,
-                relayerPublicKey: SolanaAddress,
-                generationIndex: U256,
-                time: Time,
-                claimableBalance: Amount,
-                optionalData: Sha3Hash,
-                opts: { mode: 'prepared' }
-        ): Promise<VersionedTransaction>;
-        public async claimDepositConfidentiallyFromMixerPool(
-                mintAddress: MintAddress,
-                destinationAddress: SolanaAddress,
-                commitmentInsertionIndex: U64,
-                relayerPublicKey: SolanaAddress,
-                generationIndex: U256,
-                time: Time,
-                claimableBalance: Amount,
-                optionalData: Sha3Hash,
-                opts: { mode: 'signed' }
-        ): Promise<VersionedTransaction>;
-        public async claimDepositConfidentiallyFromMixerPool(
-                mintAddress: MintAddress,
-                destinationAddress: SolanaAddress,
-                commitmentInsertionIndex: U64,
-                relayerPublicKey: SolanaAddress,
-                generationIndex: U256,
-                time: Time,
-                claimableBalance: Amount,
-                optionalData: Sha3Hash,
-                opts: { mode: 'raw' }
-        ): Promise<VersionedTransaction>;
-        public async claimDepositConfidentiallyFromMixerPool(
-                mintAddress: MintAddress,
-                destinationAddress: SolanaAddress,
-                commitmentInsertionIndex: U64,
-                relayerPublicKey: SolanaAddress,
-                generationIndex: U256,
-                time: Time,
-                claimableBalance: Amount,
-                optionalData: Sha3Hash,
-                opts?: { mode: 'relayer' | 'prepared' | 'signed' | 'raw' }
-        ): Promise<SolanaTransactionSignature | VersionedTransaction> {
+                claimDepositArtifacts: ClaimDepositArtifacts,
+                opts?: ClaimDepositOptions
+        ): Promise<SolanaTransactionSignature | T | VersionedTransaction> {
                 const mode = opts?.mode ?? 'relayer';
+                const optionalData = opts?.optionalData ?? ZERO_SHA3_HASH;
+
+                // Extract values from claimDepositArtifacts
+                const { commitmentInsertionIndex, relayerPublicKey, generationIndex, time } =
+                        claimDepositArtifacts;
 
                 // Validate prerequisites
                 if (!this.umbraWallet) {
@@ -3615,8 +3674,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *   - `optionalData`: Optional SHA3 hash for additional data. If not provided, a zero hash is used.
          *   - `mode`: Transaction handling mode. Defaults to `'relayer'` for confidential transfers.
          *
-         * @returns Depending on the `mode`, either a {@link SolanaTransactionSignature} (relayer mode)
-         * or a {@link VersionedTransaction} that can be further signed / submitted by the caller.
+         * @returns Depending on the `mode`, an object with:
+         * - `generationIndex`: the {@link U256} index used to derive the random secret and nullifier.
+         * - `relayerPublicKey`: the {@link SolanaAddress} of the relayer used for this deposit.
+         * - `claimableBalance`: the {@link Amount} that can be claimed after deducting relayer and commission fees.
+         * - `txReturnedData`: either a {@link SolanaTransactionSignature} (relayer mode) or a {@link VersionedTransaction}
+         *   that can be further signed/submitted by the caller.
          *
          * @throws {@link UmbraClientError} When:
          * - No Umbra wallet is set on the client
@@ -4204,7 +4267,9 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts?: DepositConfidentiallyOptions
-        ): Promise<SolanaTransactionSignature | VersionedTransaction> {
+        ): Promise<
+                DepositConfidentiallyResult<SolanaTransactionSignature | T | VersionedTransaction>
+        > {
                 if (!this.umbraWallet) {
                         throw new UmbraClientError(
                                 'Cannot deposit confidentially: Umbra wallet is not set. Call setUmbraWallet() first.'
@@ -4391,24 +4456,6 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         );
                 }
 
-                let ciphertexts: Array<RescueCiphertext>;
-                let nonce: U128;
-                try {
-                        [ciphertexts, nonce] = await rescueCipher.encrypt([amount, blindingFactor]);
-                } catch (error) {
-                        throw new UmbraClientError(
-                                `Failed to encrypt deposit amount: ${
-                                        error instanceof Error ? error.message : String(error)
-                                }`
-                        );
-                }
-
-                if (!ciphertexts || ciphertexts.length < 2 || !nonce) {
-                        throw new UmbraClientError(
-                                'Invalid encryption result: missing ciphertexts or nonce'
-                        );
-                }
-
                 const [destinationAddressLow, destinationAddressHigh] =
                         breakPublicKeyIntoTwoParts(destinationAddress);
 
@@ -4452,6 +4499,19 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         );
                 }
 
+                const [ciphertexts, nonce] = await rescueCipher.encrypt([amount, blindingFactor]);
+                if (!ciphertexts || ciphertexts.length < 2 || !nonce) {
+                        throw new UmbraClientError(
+                                'Invalid encryption result: missing ciphertexts or nonce'
+                        );
+                }
+
+                if (!ciphertexts[0] || !ciphertexts[1]) {
+                        throw new UmbraClientError(
+                                'Invalid encryption result: missing ciphertexts'
+                        );
+                }
+
                 const amountAfterRelayerFees = amount - feesConfiguration.relayerFees;
                 const commissionFees =
                         (amountAfterRelayerFees * feesConfiguration.commissionFees) / 10000n;
@@ -4459,6 +4519,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         (amountAfterRelayerFees * feesConfiguration.commissionFees) % 10000n;
 
                 const amountAfterCommissionFees = amountAfterRelayerFees - commissionFees;
+                const claimableBalance = amountAfterCommissionFees as Amount;
 
                 const time = Math.floor(Date.now() / 1000);
                 const dateObj = new Date(time * 1000);
@@ -4488,7 +4549,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const depositDataHash = PoseidonHasher.hash([
                         randomSecret,
                         nullifier,
-                        amountAfterCommissionFees,
+                        claimableBalance,
                         this.umbraWallet.masterViewingKey,
                         destinationAddressLow,
                         destinationAddressHigh,
@@ -4599,7 +4660,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 instructions,
                         }).compileToV0Message();
 
-                        return new VersionedTransaction(rawMessage);
+                        return {
+                                generationIndex: resolvedIndex,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance,
+                                txReturnedData: new VersionedTransaction(rawMessage),
+                        };
                 }
 
                 let blockhash: string;
@@ -4625,7 +4691,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
                 if (mode === 'prepared') {
-                        return preparedTransaction;
+                        return {
+                                generationIndex: resolvedIndex,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance,
+                                txReturnedData: preparedTransaction,
+                        };
                 }
 
                 try {
@@ -4636,13 +4707,26 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 await this.umbraWallet.signTransaction(transactionToSign);
 
                         if (mode === 'signed') {
-                                return signedTransaction;
+                                return {
+                                        generationIndex: resolvedIndex,
+                                        relayerPublicKey: resolvedRelayerPublicKey,
+                                        claimableBalance,
+                                        txReturnedData: signedTransaction,
+                                };
                         }
 
                         // mode === 'relayer'
                         const relayerForwarder =
                                 RelayerForwarder.fromPublicKey(resolvedRelayerPublicKey);
-                        return await relayerForwarder.forwardTransaction(signedTransaction);
+                        return {
+                                generationIndex: resolvedIndex,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance,
+                                txReturnedData:
+                                        await relayerForwarder.forwardTransaction(
+                                                signedTransaction
+                                        ),
+                        };
                 } catch (error) {
                         throw new UmbraClientError(
                                 `Failed to deposit confidentially: ${
@@ -4780,7 +4864,9 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
                 opts?: DepositConfidentiallyOptions
-        ): Promise<SolanaTransactionSignature | VersionedTransaction> {
+        ): Promise<
+                DepositConfidentiallyResult<SolanaTransactionSignature | T | VersionedTransaction>
+        > {
                 if (!this.umbraWallet) {
                         throw new UmbraClientError(
                                 'Cannot deposit confidentially: Umbra wallet is not set. Call setUmbraWallet() first.'
@@ -5032,6 +5118,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const remainder = (amount * feesConfiguration.commissionFees) % 10000n;
 
                 const amountAfterCommissionFees = amount - commissionFees;
+                const claimableBalance = amountAfterCommissionFees as Amount;
 
                 const time = Math.floor(Date.now() / 1000);
                 const dateObj = new Date(time * 1000);
@@ -5061,7 +5148,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const depositDataHash = PoseidonHasher.hash([
                         randomSecret,
                         nullifier,
-                        amountAfterCommissionFees,
+                        claimableBalance,
+                        claimableBalance,
                         this.umbraWallet.masterViewingKey,
                         destinationAddressLow,
                         destinationAddressHigh,
@@ -5173,7 +5261,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 instructions,
                         }).compileToV0Message();
 
-                        return new VersionedTransaction(rawMessage);
+                        return {
+                                generationIndex: resolvedIndex,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance,
+                                txReturnedData: new VersionedTransaction(rawMessage),
+                        };
                 }
 
                 let blockhash: string;
@@ -5199,7 +5292,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const preparedTransaction = new VersionedTransaction(transactionMessage);
 
                 if (mode === 'prepared') {
-                        return preparedTransaction;
+                        return {
+                                generationIndex: resolvedIndex,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance,
+                                txReturnedData: preparedTransaction,
+                        };
                 }
 
                 try {
@@ -5210,13 +5308,26 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 await this.umbraWallet.signTransaction(transactionToSign);
 
                         if (mode === 'signed') {
-                                return signedTransaction;
+                                return {
+                                        generationIndex: resolvedIndex,
+                                        relayerPublicKey: resolvedRelayerPublicKey,
+                                        claimableBalance,
+                                        txReturnedData: signedTransaction,
+                                };
                         }
 
                         // mode === 'relayer'
                         const relayerForwarder =
                                 RelayerForwarder.fromPublicKey(resolvedRelayerPublicKey);
-                        return await relayerForwarder.forwardTransaction(signedTransaction);
+                        return {
+                                generationIndex: resolvedIndex,
+                                relayerPublicKey: resolvedRelayerPublicKey,
+                                claimableBalance,
+                                txReturnedData:
+                                        await relayerForwarder.forwardTransaction(
+                                                signedTransaction
+                                        ),
+                        };
                 } catch (error) {
                         throw new UmbraClientError(
                                 `Failed to deposit confidentially: ${
