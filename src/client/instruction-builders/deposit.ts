@@ -1084,6 +1084,7 @@ export async function buildDepositIntoMixerPoolSplInstruction(
         txAccounts: {
                 arciumSigner: SolanaAddress;
                 relayer: SolanaAddress;
+                mint: MintAddress;
         },
         txArgs: {
                 amount: Amount;
@@ -1151,6 +1152,7 @@ export async function buildDepositIntoMixerPoolSplInstruction(
                                 relayerFeesPool: relayerFeesPoolAccount,
                                 publicCommissionFeesPool: publicCommissionFeesPoolAccount,
                                 feesConfigurationAccount: feesConfigurationAccount,
+                                mint: txAccounts.mint,
                         });
 
                 const instruction = await ixBuilder.instruction();
