@@ -5,14 +5,15 @@ import { Connection } from '@solana/web3.js';
 import { UmbraClient } from '../src/client/umbra-client';
 import { UmbraWallet } from '../src/client/umbra-wallet';
 import type {
-        InstructionSeed,
         AccountOffset,
+        InstructionSeed,
         NumberOfTransactions,
         RiskThreshold,
 } from '../src/types/miscellaneous';
 import type { MintAddress } from '../src/types/solana';
 import type { Sha3Hash } from '../src/types/cryptography';
 import { loadLocalKeypair } from './helpers/local-keypair';
+import { createUmbraWalletFromSigner } from '../src';
 
 /**
  * NOTE:
@@ -34,7 +35,7 @@ async function createClientWithWallet(): Promise<UmbraClient> {
         const client = await UmbraClient.create({ connection });
 
         const keypair = loadLocalKeypair();
-        const wallet = await UmbraWallet.fromSigner({ signer: { keypair } as any });
+        const wallet = await createUmbraWalletFromSigner({ signer: { keypair } as any });
 
         await client.setUmbraWallet(wallet);
 
