@@ -1560,7 +1560,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * ```ts
          * // Basic usage with default 'connection' mode and auto-generated index/relayer.
          * const [index, relayerPublicKey, claimableBalance, signature] =
-         *   await client.depositPublicallyIntoMixerPoolSol(
+         *   await client.depositPubliclyIntoMixerPoolSol(
          *     amount,
          *     destinationAddress
          *   );
@@ -1570,7 +1570,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * ```ts
          * // Usage with specific index and relayer, using 'signed' mode.
          * const [index, relayerPublicKey, claimableBalance, signedTx] =
-         *   await client.depositPublicallyIntoMixerPoolSol(
+         *   await client.depositPubliclyIntoMixerPoolSol(
          *     amount,
          *     destinationAddress,
          *     {
@@ -1581,7 +1581,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *   );
          * ```
          */
-        public async depositPublicallyIntoMixerPoolSol(
+        public async depositPubliclyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 opts?: DepositPubliclyOptions
@@ -1835,7 +1835,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *   {@link VersionedTransaction}.
          *
          * @remarks
-         * This method mirrors {@link depositPublicallyIntoMixerPoolSol} but operates on SPL tokens.
+         * This method mirrors {@link depositPubliclyIntoMixerPoolSol} but operates on SPL tokens.
          * The key differences are:
          * - Commission fees **are** subtracted directly from the deposited SPL `amount`, ensuring the on-chain
          *   commitment reflects the post-commission value.
@@ -1855,13 +1855,13 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * - Builds a `deposit_into_mixer_pool_spl` instruction targeting a randomly selected relayer.
          *
          * The behavior is controlled by the `mode` option in the same way as
-         * {@link depositPublicallyIntoMixerPoolSol}.
+         * {@link depositPubliclyIntoMixerPoolSol}.
          *
          * @example
          * ```ts
          * // Basic SPL deposit with default 'connection' mode and auto-generated index/relayer.
          * const [index, relayerPublicKey, claimableBalance, signature] =
-         *   await client.depositPublicallyIntoMixerPoolSpl(
+         *   await client.depositPubliclyIntoMixerPoolSpl(
          *     amount,
          *     destinationAddress,
          *     splMintAddress
@@ -1872,7 +1872,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * ```ts
          * // SPL deposit with specific index and relayer, using 'prepared' mode.
          * const [index, relayerPublicKey, claimableBalance, preparedTx] =
-         *   await client.depositPublicallyIntoMixerPoolSpl(
+         *   await client.depositPubliclyIntoMixerPoolSpl(
          *     amount,
          *     destinationAddress,
          *     splMintAddress,
@@ -1884,7 +1884,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *   );
          * ```
          */
-        public async depositPublicallyIntoMixerPoolSpl(
+        public async depositPubliclyIntoMixerPoolSpl(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
@@ -2123,8 +2123,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
 
         /**
          * Convenience wrapper that deposits either SOL (via WSOL) or SPL tokens into the mixer pool,
-         * delegating to {@link depositPublicallyIntoMixerPoolSol} or
-         * {@link depositPublicallyIntoMixerPoolSpl} as appropriate based on the mint.
+         * delegating to {@link depositPubliclyIntoMixerPoolSol} or
+         * {@link depositPubliclyIntoMixerPoolSpl} as appropriate based on the mint.
          *
          * @param amount - The amount of SOL/SPL tokens to deposit.
          * @param destinationAddress - The Solana address where withdrawn funds should ultimately be sent.
@@ -2136,14 +2136,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          *
          * @remarks
          * - When `mintAddress === WSOL_MINT_ADDRESS`, this method behaves exactly like
-         *   {@link depositPublicallyIntoMixerPoolSol}, including relayer and commission fee cuts
+         *   {@link depositPubliclyIntoMixerPoolSol}, including relayer and commission fee cuts
          *   from the deposited amount.
-         * - For all other mints, it behaves like {@link depositPublicallyIntoMixerPoolSpl}, where
+         * - For all other mints, it behaves like {@link depositPubliclyIntoMixerPoolSpl}, where
          *   the full SPL `amount` is committed into the mixer pool and relayer fees are paid from WSOL.
          *
          * All `mode` and `index` semantics mirror the underlying SOL/SPL methods.
          */
-        public async depositPublicallyIntoMixerPool(
+        public async depositPubliclyIntoMixerPool(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
@@ -2152,14 +2152,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 [U256, SolanaAddress, Amount, SolanaTransactionSignature | T | VersionedTransaction]
         > {
                 if (mintAddress === WSOL_MINT_ADDRESS) {
-                        return this.depositPublicallyIntoMixerPoolSol(
+                        return this.depositPubliclyIntoMixerPoolSol(
                                 amount,
                                 destinationAddress,
                                 opts
                         );
                 }
 
-                return this.depositPublicallyIntoMixerPoolSpl(
+                return this.depositPubliclyIntoMixerPoolSpl(
                         amount,
                         destinationAddress,
                         mintAddress,
