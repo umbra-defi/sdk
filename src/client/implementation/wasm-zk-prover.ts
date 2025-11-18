@@ -52,31 +52,33 @@ export const CIRCUIT_ARTIFACT_URLS: Record<
         }
 > = {
         masterViewingKeyRegistration: {
-                wasm: '/zk/master_viewing_key_registration.wasm',
-                zkey: '/zk/master_viewing_key_registration.zkey',
-                verificationKey: '/zk/master_viewing_key_registration_verification_key.json',
+                wasm: '/master_viewing_key_registration.wasm',
+                zkey: '/master_viewing_key_registration_0000.zkey',
+                verificationKey: '/master_viewing_key_registration_verification_key.json',
         },
         createSplDepositWithHiddenAmount: {
-                wasm: '/zk/create_spl_deposit_with_hidden_amount.wasm',
-                zkey: '/zk/create_spl_deposit_with_hidden_amount.zkey',
-                verificationKey: '/zk/create_spl_deposit_with_hidden_amount_verification_key.json',
+                wasm: '/create_spl_deposit_with_hidden_amount.wasm',
+                zkey: '/create_spl_deposit_with_hidden_amount_0000.zkey',
+                verificationKey: '/create_spl_deposit_with_hidden_amount_verification_key.json',
         },
         createSplDepositWithPublicAmount: {
-                wasm: '/zk/create_spl_deposit_with_public_amount.wasm',
-                zkey: '/zk/create_spl_deposit_with_public_amount.zkey',
-                verificationKey: '/zk/create_spl_deposit_with_public_amount_verification_key.json',
+                wasm: '/create_spl_deposit_with_public_amount.wasm',
+                zkey: '/create_spl_deposit_with_public_amount_0000.zkey',
+                verificationKey: '/create_spl_deposit_with_public_amount_verification_key.json',
         },
         claimSplDepositWithHiddenAmount: {
-                wasm: '/zk/claim_spl_deposit_with_hidden_amount.wasm',
-                zkey: '/zk/claim_spl_deposit_with_hidden_amount.zkey',
-                verificationKey: '/zk/claim_spl_deposit_with_hidden_amount_verification_key.json',
+                wasm: '/claim_spl_deposit_with_hidden_amount.wasm',
+                zkey: '/claim_spl_deposit_with_hidden_amount_0000.zkey',
+                verificationKey: '/claim_spl_deposit_with_hidden_amount_verification_key.json',
         },
         claimSplDeposit: {
-                wasm: '/zk/claim_spl_deposit.wasm',
-                zkey: '/zk/claim_spl_deposit.zkey',
-                verificationKey: '/zk/claim_spl_deposit_verification_key.json',
+                wasm: '/claim_spl_deposit_with_public_amount.wasm',
+                zkey: '/claim_spl_deposit_with_public_amount_0000.zkey',
+                verificationKey: '/claim_spl_deposit_with_public_amount_verification_key.json',
         },
 };
+
+const ZK_ARTIFACT_BASE_URL = 'https://umbra-zk-public.s3.eu-central-1.amazonaws.com/uploads';
 
 /**
  * Configuration for the WASM-based ZK prover.
@@ -233,13 +235,13 @@ export class WasmZkProver extends IZkProver {
                         );
                 }
 
-                const urls = CIRCUIT_ARTIFACT_URLS[circuitId];
+                const paths = CIRCUIT_ARTIFACT_URLS[circuitId];
 
                 const [wasm, zkey, verificationKeyJson] = await Promise.all([
-                        this.fetchBinary(urls.wasm),
-                        this.fetchBinary(urls.zkey),
-                        urls.verificationKey
-                                ? this.fetchJson(urls.verificationKey)
+                        this.fetchBinary(paths.wasm),
+                        this.fetchBinary(paths.zkey),
+                        paths.verificationKey
+                                ? this.fetchJson(paths.verificationKey)
                                 : Promise.resolve(undefined),
                 ]);
 
@@ -258,11 +260,11 @@ export class WasmZkProver extends IZkProver {
          *
          * @internal
          */
-        private async fetchBinary(url: string): Promise<Uint8Array> {
-                const response: any = await fetch(url as any);
+        private async fetchBinary(path: string): Promise<Uint8Array> {
+                const response: any = await fetch(`${ZK_ARTIFACT_BASE_URL}${path}` as any);
                 if (!response.ok) {
                         throw new WasmZkProverError(
-                                `Failed to fetch binary artifact from "${url}": ${response.status} ${response.statusText}`
+                                `Failed to fetch binary artifact from "${path}": ${response.status} ${response.statusText}`
                         );
                 }
                 const buffer = await response.arrayBuffer();
@@ -275,7 +277,7 @@ export class WasmZkProver extends IZkProver {
          * @internal
          */
         private async fetchJson(url: string): Promise<unknown> {
-                const response: any = await fetch(url as any);
+                const response: any = await fetch(`${ZK_ARTIFACT_BASE_URL}${url}` as any);
                 if (!response.ok) {
                         throw new WasmZkProverError(
                                 `Failed to fetch JSON artifact from "${url}": ${response.status} ${response.statusText}`
