@@ -2,11 +2,13 @@ import {
         AccountOffset,
         InstructionSeed,
         MintAddress,
+        PoseidonHash,
         SolanaAddress,
         U128,
         U128LeBytes,
         U256,
         U256LeBytes,
+        U64,
 } from '@/types';
 import { Transaction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { randomBytes } from '@noble/hashes/utils.js';
@@ -16,6 +18,7 @@ import {
         convertU256LeBytesToU256,
 } from './convertors';
 import { U16LeBytes } from '@/types';
+import { MERKLE_TREE_DEPTH } from '@/constants';
 
 /**
  * Error thrown when transaction conversion fails.
@@ -499,4 +502,53 @@ export function breakPublicKeyIntoTwoParts(publicKey: SolanaAddress): [U128, U12
                 convertU128LeBytesToU128(publicKeyBytesFirstHalf as U128LeBytes),
                 convertU128LeBytesToU128(publicKeyBytesSecondHalf as U128LeBytes),
         ];
+}
+
+/**
+ * Derives the left/right sibling indicators for a Merkle tree path from a commitment insertion index.
+ *
+ * @remarks
+ * A Merkle proof requires knowing, for each tree level, whether the current node sits on the left or right
+ * side so the correct sibling hash can be concatenated in the proper order. This helper inspects each bit
+ * of the provided `insertionIndex` (from least-significant upwards) and returns an array where:
+ *
+ * - `0` means "sibling is on the left" (the current node is on the right)
+ * - `1` means "sibling is on the right" (the current node is on the left)
+ *
+ * The array length matches {@link MERKLE_TREE_DEPTH}, producing one entry per tree level.
+ *
+ * @param insertionIndex - Zero-based index of the commitment within the Merkle tree.
+ *
+ * @returns An array of `0 | 1` values describing sibling positions for each tree level, from leaf to root.
+ *
+ * @throws {@link RangeError} When `insertionIndex` is negative or exceeds the maximum index representable
+ * for the configured tree depth (i.e. `2^MERKLE_TREE_DEPTH - 1`).
+ */
+export function getSiblingMerkleIndicesFromInsertionIndex(insertionIndex: U64): Array<0 | 1> {
+        if (insertionIndex < BigInt(0)) {
+                throw new RangeError(
+                        'Insertion index cannot be negative when computing Merkle siblings.'
+                );
+        }
+
+        const maxInsertionIndex = BigInt(1) << BigInt(MERKLE_TREE_DEPTH);
+        if (insertionIndex >= maxInsertionIndex) {
+                throw new RangeError(
+                        `Insertion index ${insertionIndex.toString()} exceeds tree capacity for depth ${MERKLE_TREE_DEPTH}.`
+                );
+        }
+
+        const siblingIndices: Array<0 | 1> = [];
+        for (let i = 0; i < MERKLE_TREE_DEPTH; ++i) {
+                siblingIndices.push(
+                        (insertionIndex & (BigInt(1) << BigInt(i))) === BigInt(0) ? 1 : 0
+                );
+        }
+
+        return siblingIndices;
+}
+
+export function convertHexStringToPoseidonHash(hexString: string): PoseidonHash {
+        const bytes = Buffer.from(hexString, 'hex');
+        return Uint8Array.from(bytes.reverse()) as PoseidonHash;
 }

@@ -1,5 +1,5 @@
 import { UmbraWallet, UmbraWalletError } from '@/client/umbra-wallet';
-import { ITransactionForwarder, ISigner, IZkProver } from '@/client/interface';
+import { ITransactionForwarder, ISigner, IZkProver, IIndexer } from '@/client/interface';
 import {
         AccountOffset,
         Amount,
@@ -32,6 +32,7 @@ import {
         Groth16ProofBBeBytes,
         Groth16ProofCBeBytes,
         U8,
+        U16,
 } from '@/types';
 import { ConnectionBasedForwarder } from '@/client/implementation/connection-based-forwarder';
 import {
@@ -53,6 +54,7 @@ import {
         breakPublicKeyIntoTwoParts,
         generateRandomBlindingFactor,
         generateRandomU256,
+        getSiblingMerkleIndicesFromInsertionIndex,
         isBitSet,
 } from '@/utils/miscellaneous';
 import {
@@ -90,6 +92,7 @@ import {
         ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_IS_MXE_ENCRYPTED,
         ARCIUM_ENCRYPTED_USER_ACCOUNT_FLAG_BIT_FOR_REQUIRES_SOL_DEPOSIT,
         ARCIUM_ENCRYPTED_USER_ACCOUNT_FOR_HAS_REGISTERED_MASTER_VIEWING_KEY,
+        INDEXER_BASE_URL,
         WSOL_MINT_ADDRESS,
 } from '@/constants/anchor';
 import {
@@ -107,6 +110,7 @@ import { buildInitialisePublicCommissionFeesPoolInstruction } from './instructio
 import { kmac256 } from '@noble/hashes/sha3-addons.js';
 import { x25519 } from '@noble/curves/ed25519.js';
 import { RescueCipher } from '@/client/implementation';
+import { AwsIndexer } from '@/client/implementation/aws-indexer';
 import {
         buildExistingTokenTransferSolMxeInstruction,
         buildExistingTokenTransferSolSharedInstruction,
@@ -368,12 +372,14 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * resumption. This is the primary forwarder created during client initialization.
          */
         public readonly connectionBasedForwarder: ConnectionBasedForwarder;
+        public readonly indexer: IIndexer;
         public readonly program: Program<Umbra>;
 
         private constructor(
                 umbraWallet: UmbraWallet | undefined,
                 connectionBasedForwarder: ConnectionBasedForwarder,
                 program: Program<Umbra>,
+                indexer: IIndexer,
                 zkProver?: IZkProver
         ) {
                 this.umbraWallet = umbraWallet;
@@ -381,6 +387,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 this.program = program;
                 this.txForwarder = undefined;
                 this.zkProver = zkProver;
+                this.indexer = indexer;
         }
 
         /**
@@ -426,6 +433,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * Creates an UmbraClient from a ConnectionBasedForwarder instance.
          *
          * @param connectionBasedForwarder - An existing ConnectionBasedForwarder instance that contains a Solana Connection
+         * @param indexerOrSpecifier - Optional indexer instance or `'aws'` to auto-configure the default AWS indexer.
          * @returns A new UmbraClient instance
          *
          * @remarks
@@ -436,19 +444,17 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * **Connection Requirement:**
          * The ConnectionBasedForwarder must contain a valid Solana Connection, as all on-chain
          * data fetching and transaction sending operations will use this connection.
-         *
-         * @example
-         * ```typescript
-         * const forwarder = ConnectionBasedForwarder.fromConnection(connection);
-         * const client = UmbraClient.create(forwarder);
-         * ```
          */
-        public static create(connectionBasedForwarder: ConnectionBasedForwarder): UmbraClient;
+        public static create(
+                connectionBasedForwarder: ConnectionBasedForwarder,
+                indexerOrSpecifier?: IIndexer | 'aws'
+        ): UmbraClient;
 
         /**
          * Creates an UmbraClient from a Solana Connection instance.
          *
          * @param connection - The Solana Connection instance to use for all on-chain operations
+         * @param indexerOrSpecifier - Optional indexer instance or `'aws'` to auto-configure the default AWS indexer.
          * @returns A new UmbraClient instance
          *
          * @remarks
@@ -471,12 +477,16 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * const client = UmbraClient.create(connection);
          * ```
          */
-        public static create(connection: Connection): UmbraClient;
+        public static create(
+                connection: Connection,
+                indexerOrSpecifier?: IIndexer | 'aws'
+        ): UmbraClient;
 
         /**
          * Creates an UmbraClient from an RPC URL.
          *
          * @param rpcUrl - The RPC endpoint URL (e.g., 'https://api.mainnet-beta.solana.com')
+         * @param indexerOrSpecifier - Optional indexer instance or `'aws'` to auto-configure the default AWS indexer.
          * @returns A new UmbraClient instance
          *
          * @remarks
@@ -509,7 +519,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * const client = UmbraClient.create('https://your-rpc-endpoint.com');
          * ```
          */
-        public static create(rpcUrl: string): UmbraClient;
+        public static create(rpcUrl: string, indexerOrSpecifier?: IIndexer | 'aws'): UmbraClient;
 
         /**
          * Implementation of create that handles all overloads.
@@ -517,7 +527,8 @@ export class UmbraClient<T = SolanaTransactionSignature> {
          * @internal
          */
         public static create(
-                connectionOrForwarderOrRpcUrl: Connection | ConnectionBasedForwarder | string
+                connectionOrForwarderOrRpcUrl: Connection | ConnectionBasedForwarder | string,
+                indexerOrSpecifier?: IIndexer | 'aws'
         ): UmbraClient {
                 let connectionBasedForwarder: ConnectionBasedForwarder;
 
@@ -543,7 +554,22 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 const provider = new AnchorProvider(connection, wallet);
                 const program = new Program<Umbra>(idl as Umbra, provider);
 
-                return new UmbraClient(undefined, connectionBasedForwarder, program);
+                const resolvedIndexer = UmbraClient.resolveIndexer(indexerOrSpecifier);
+
+                return new UmbraClient(
+                        undefined,
+                        connectionBasedForwarder,
+                        program,
+                        resolvedIndexer
+                );
+        }
+
+        private static resolveIndexer(indexerOrSpecifier?: IIndexer | 'aws'): IIndexer {
+                if (!indexerOrSpecifier || indexerOrSpecifier === 'aws') {
+                        return AwsIndexer.fromBaseUrl(INDEXER_BASE_URL);
+                }
+
+                return indexerOrSpecifier;
         }
 
         /**
@@ -3178,7 +3204,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 siblings: merkleSiblingPathElements,
                                 siblingPathIndices: merkleSiblingPathIndices,
                                 merkleRoot,
-                        } = UmbraClient.getMerkleSiblingPathElements(commitmentInsertionIndex);
+                        } = await this.getMerkleSiblingPathElements(commitmentInsertionIndex);
 
                         // Break addresses into low/high parts
                         const [destinationAddressLow, destinationAddressHigh] =
@@ -5357,7 +5383,7 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                         siblings: merkleSiblingPathElements,
                         siblingPathIndices: merkleSiblingPathIndices,
                         merkleRoot,
-                } = UmbraClient.getMerkleSiblingPathElements(
+                } = await this.getMerkleSiblingPathElements(
                         claimDepositArtifacts.commitmentInsertionIndex
                 );
 
@@ -5604,7 +5630,11 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 commissionFeesLowerBound: Amount;
                 commissionFeesUpperBound: Amount;
         }> {
-                throw new UmbraClientError('Not implemented');
+                return {
+                        commissionFees: BigInt(0) as U16,
+                        commissionFeesLowerBound: BigInt(0) as U128,
+                        commissionFeesUpperBound: BigInt(2 ** 64 - 1) as U128,
+                };
         }
 
         public async getFeesConfigurationForDepositConfidentiallyIntoMixerPool(
@@ -5616,7 +5646,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 commissionFeesLowerBound: Amount;
                 commissionFeesUpperBound: Amount;
         }> {
-                throw new UmbraClientError('Not implemented');
+                return {
+                        relayerFees: BigInt(0) as U128,
+                        commissionFees: BigInt(0) as U16,
+                        commissionFeesLowerBound: BigInt(0) as U128,
+                        commissionFeesUpperBound: BigInt(2 ** 64 - 1) as U128,
+                };
         }
 
         /**
@@ -5815,11 +5850,33 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                 }
         }
 
-        public static getMerkleSiblingPathElements(_index: U64): {
+        public async getMerkleSiblingPathElements(index: U64): Promise<{
                 siblings: Array<PoseidonHash>;
                 siblingPathIndices: Array<0 | 1>;
                 merkleRoot: PoseidonHash;
-        } {
-                throw new UmbraClientError('Not implemented');
+        }> {
+                try {
+                        const siblings = await this.indexer.getMerkleSiblings(index);
+                        if (!siblings.length) {
+                                throw new UmbraClientError(
+                                        `Indexer returned an empty Merkle proof for index ${index.toString()}.`
+                                );
+                        }
+
+                        const siblingPathIndices = getSiblingMerkleIndicesFromInsertionIndex(index);
+                        const merkleRoot = siblings[siblings.length - 1]!;
+
+                        return {
+                                siblings,
+                                siblingPathIndices,
+                                merkleRoot,
+                        };
+                } catch (error) {
+                        throw new UmbraClientError(
+                                `Failed to retrieve Merkle siblings: ${
+                                        error instanceof Error ? error.message : String(error)
+                                }`
+                        );
+                }
         }
 }
