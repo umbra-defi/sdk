@@ -4158,111 +4158,12 @@ export class UmbraClient<T = SolanaTransactionSignature> {
         }
 
         /**
-         * Deposits tokens confidentially into the Umbra mixer pool using encrypted amounts and zero-knowledge proofs.
+         * @internal
          *
-         * @remarks
-         * This method enables private token deposits into the mixer pool. The deposit amount is encrypted using
-         * Rescue cipher, ensuring that only authorized parties can decrypt the deposit details. The method
-         * generates a zero-knowledge proof to verify the deposit validity without revealing sensitive information.
-         *
-         * **Deposit Process:**
-         * 1. Validates user and token accounts (must be initialized, active, and in shared mode)
-         * 2. Encrypts the deposit amount and blinding factor using Rescue cipher
-         * 3. Generates cryptographic values (random secret, nullifier) from the index
-         * 4. Calculates fees (relayer fees and commission fees)
-         * 5. Generates zero-knowledge proof for the deposit
-         * 6. Builds deposit instruction and forwards transaction through relayer
-         *
-         * **Account Requirements:**
-         * - User account must be initialized, active, have registered master viewing key, not require SOL deposit,
-         *   and be in shared mode (not MXE encrypted)
-         * - Token account must be initialized, active, and in shared mode (not MXE encrypted)
-         *
-         * **Privacy Features:**
-         * - Deposit amount is encrypted using Rescue cipher with X25519 key exchange
-         * - Zero-knowledge proof verifies deposit validity without revealing amount
-         * - Blinding factor ensures commitment privacy
-         * - Nullifier prevents double-spending
-         * - Linker hash binds deposit to destination address and time
-         *
-         * **Relayer Support:**
-         * If no `relayerPublicKey` is provided, a random relayer is automatically selected using
-         * {@link getRandomRelayerForwarder}. The relayer pays transaction fees on behalf of the
-         * user, enabling gasless deposits.
-         *
-         * **Index Generation:**
-         * If no `index` is provided, a random index is generated using {@link generateRandomU256}.
-         * The index is used to derive the random secret and nullifier deterministically.
-         *
-         * **Requirements:**
-         * - An Umbra wallet must be set on the client via {@link setUmbraWallet}
-         * - A zero-knowledge prover must be set via {@link setZkProver}
-         * - The wallet must have a valid master viewing key
-         * - User and token accounts must exist and be in the correct state
-         *
-         * @param amount - The amount of tokens to deposit (will be encrypted)
-         * @param destinationAddress - The destination address where withdrawn funds should ultimately be sent
-         * @param mintAddress - The mint address of the token being deposited. Use {@link WSOL_MINT_ADDRESS} for SOL deposits
-         * @param opts - Optional configuration object containing:
-         *   - `index`: Optional index used to derive random secret and nullifier. If not provided, a random index is generated.
-         *   - `relayerPublicKey`: Optional public key of the relayer. If not provided, a random relayer is selected automatically.
-         *   - `optionalData`: Optional SHA3 hash for additional data. If not provided, a zero hash is used.
-         *   - `mode`: Transaction handling mode. Defaults to `'relayer'` for confidential deposits.
-         *
-         * @returns Depending on the `mode`, either a {@link SolanaTransactionSignature} (relayer mode)
-         * or a {@link VersionedTransaction} that can be further signed / submitted by the caller.
-         *
-         * @throws {@link UmbraClientError} When:
-         * - No Umbra wallet is set on the client
-         * - No zero-knowledge prover is set on the client
-         * - Master viewing key is unavailable
-         * - User account does not exist or is not in the correct state
-         * - Token account does not exist or is not in the correct state
-         * - Account decoding fails
-         * - Rescue cipher is not initialized
-         * - Cryptographic value generation fails (random secret, nullifier, linker hash)
-         * - Zero-knowledge proof generation fails or returns invalid results
-         * - Instruction building fails
-         * - Transaction building or forwarding fails
-         * - Unable to resolve relayer public key
-         *
-         * @example
-         * ```typescript
-         * const client = UmbraClient.create('https://api.mainnet-beta.solana.com');
-         * await client.setUmbraWallet(signer);
-         * await client.setZkProver(zkProver);
-         *
-         * // Deposit with automatic index, relayer, and optionalData
-         * const signature = await client.depositConfidentiallyIntoMixerPool(
-         *   1000000n, // 1 USDC with 6 decimals
-         *   destinationAddress,
-         *   usdcMintAddress
-         * );
-         *
-         * // Deposit with specific index and optionalData
-         * const signature2 = await client.depositConfidentiallyIntoMixerPool(
-         *   1000000n,
-         *   destinationAddress,
-         *   usdcMintAddress,
-         *   {
-         *     index: 42n,
-         *     optionalData: optionalDataHash
-         *   }
-         * );
-         *
-         * // Deposit with specific relayer and mode
-         * const preparedTx = await client.depositConfidentiallyIntoMixerPool(
-         *   1000000n,
-         *   destinationAddress,
-         *   usdcMintAddress,
-         *   {
-         *     relayerPublicKey: specificRelayerPublicKey,
-         *     mode: 'prepared'
-         *   }
-         * );
-         * ```
+         * SOL/WSOL-specific implementation invoked by {@link depositConfidentiallyIntoMixerPool}
+         * when `mintAddress === WSOL_MINT_ADDRESS`.
          */
-        public async depositConfidentiallyIntoMixerPool(
+        private async depositConfidentiallyIntoMixerPoolSol(
                 amount: Amount,
                 destinationAddress: SolanaAddress,
                 mintAddress: MintAddress,
@@ -5335,6 +5236,45 @@ export class UmbraClient<T = SolanaTransactionSignature> {
                                 }`
                         );
                 }
+        }
+
+        /**
+         * Convenience wrapper that deposits either SOL (via {@link WSOL_MINT_ADDRESS}) or SPL tokens
+         * confidentially into the Umbra mixer pool. Internally delegates to
+         * {@link depositConfidentiallyIntoMixerPoolSol} when the mint is `WSOL_MINT_ADDRESS` and to
+         * {@link depositConfidentiallyIntoMixerPoolSpl} for every other mint.
+         *
+         * @param amount - Amount to deposit (encrypted when routed through the SPL path).
+         * @param destinationAddress - The destination address where withdrawn funds should ultimately be sent.
+         * @param mintAddress - SPL mint address for the asset being deposited.
+         * @param opts - Optional configuration object; passed through to the underlying implementation.
+         *
+         * @returns A {@link DepositConfidentiallyResult} containing the generation index, relayer public key,
+         * claimable balance after fees, and mode-dependent transaction data.
+         */
+        public async depositConfidentiallyIntoMixerPool(
+                amount: Amount,
+                destinationAddress: SolanaAddress,
+                mintAddress: MintAddress,
+                opts?: DepositConfidentiallyOptions
+        ): Promise<
+                DepositConfidentiallyResult<SolanaTransactionSignature | T | VersionedTransaction>
+        > {
+                if (mintAddress === WSOL_MINT_ADDRESS) {
+                        return this.depositConfidentiallyIntoMixerPoolSol(
+                                amount,
+                                destinationAddress,
+                                mintAddress,
+                                opts
+                        );
+                }
+
+                return this.depositConfidentiallyIntoMixerPoolSpl(
+                        amount,
+                        destinationAddress,
+                        mintAddress,
+                        opts
+                );
         }
 
         /**
